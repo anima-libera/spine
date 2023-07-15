@@ -40,8 +40,11 @@ byte_buffer_fn_write!(write_u64, u64);
 
 struct Binary {
 	entry_point_offset_in_code: usize,
+	/// Address in memory. Beware: one often has to add the offset in the binary to this!
 	code_segment_address: usize,
+	/// Address in memory. Beware: one often has to add the offset in the binary to this!
 	data_segment_address: usize,
+	asm_instrs: Vec<AsmInstr>,
 }
 
 impl Binary {
@@ -50,16 +53,16 @@ impl Binary {
 			entry_point_offset_in_code: 0,
 			code_segment_address: 0x400000,
 			data_segment_address: 0x600000,
+			asm_instrs: vec![],
 		}
 	}
 
 	fn code_segment_binary_machine_code(&self) -> Vec<u8> {
 		let mut buf = ByteBuffer::new();
 		let mut i = 0;
-		// Exit(0)
-		i = buf.write_bytes(i, &[0x48, 0xc7, 0xc0, 0x3c, 0x00, 0x00, 0x00]); // movq $60, %rax
-		i = buf.write_bytes(i, &[0x48, 0xc7, 0xc7, 0x00, 0x00, 0x00, 0x00]); // movq $0, %rdi
-		buf.write_bytes(i, &[0x0f, 0x05]); // syscall
+		for asm_instr in self.asm_instrs.iter() {
+			i = buf.write_bytes(i, &asm_instr.to_machine_code().1.unwrap());
+		}
 		buf.into_bytes()
 	}
 
@@ -174,7 +177,70 @@ impl Binary {
 	}
 }
 
+enum Imm32 {
+	//DataAddr { offset_in_data_segment: u32 },
+	Const(u32),
+}
+
+impl Imm32 {
+	fn to_binary(&self) -> [u8; 4] {
+		match self {
+			Imm32::Const(value) => value.to_le_bytes(),
+		}
+	}
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Reg64 {
+	Rax,
+	//Rbx,
+	//Rcx,
+	//Rdx,
+	//Rbp,
+	//Rsp,
+	//Rsi,
+	Rdi,
+	//R8,
+	//R9,
+	//R10,
+	//R11,
+	//R12,
+	//R13,
+	//R14,
+	//R15,
+}
+
+enum AsmInstr {
+	MovImm32ToReg64 { imm_src: Imm32, reg_dst: Reg64 },
+	Syscall,
+}
+
+impl AsmInstr {
+	fn to_machine_code(&self) -> (usize, Option<Vec<u8>>) {
+		match self {
+			AsmInstr::MovImm32ToReg64 { imm_src, reg_dst } => {
+				let size = 7;
+				let mut machine_code = match reg_dst {
+					Reg64::Rax => vec![0x48, 0xc7, 0xc0],
+					Reg64::Rdi => vec![0x48, 0xc7, 0xc7],
+					//_ => todo!(),
+				};
+				machine_code.extend(imm_src.to_binary());
+				(size, Some(machine_code))
+			},
+			AsmInstr::Syscall => (2, Some(vec![0x0f, 0x05])),
+		}
+	}
+}
+
 fn main() {
-	let bin = Binary::new();
+	let mut bin = Binary::new();
+
+	bin.asm_instrs
+		.push(AsmInstr::MovImm32ToReg64 { imm_src: Imm32::Const(60), reg_dst: Reg64::Rax });
+	bin.asm_instrs
+		.push(AsmInstr::MovImm32ToReg64 { imm_src: Imm32::Const(0), reg_dst: Reg64::Rdi });
+	bin.asm_instrs.push(AsmInstr::Syscall);
+
 	std::fs::write("binary", bin.to_binary().bytes).unwrap();
 }
