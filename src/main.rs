@@ -242,6 +242,22 @@ impl Imm32 {
 	}
 }
 
+enum Imm64 {
+	DataAddr { offset_in_data_segment: u64 },
+	Const(u64),
+}
+
+impl Imm64 {
+	fn to_binary(&self, layout: &Layout) -> [u8; 8] {
+		match self {
+			Imm64::DataAddr { offset_in_data_segment } => {
+				(layout.data_segment_address as u64 + offset_in_data_segment).to_le_bytes()
+			},
+			Imm64::Const(value) => value.to_le_bytes(),
+		}
+	}
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 #[rustfmt::skip]
@@ -265,10 +281,27 @@ impl Reg64 {
 	}
 }
 
+// - TODO: Add support for Imm8 and for deref 32 and 8 bits in both src and dst.
+// - TODO: Make an Imm enum type that is either Imm8, Imm32 or Imm64 and merge the MovImmToReg
+// instruction variants.
+// - TODO: Merge the MovDerefNToReg variants by adding an enum to describe N in a field,
+// and do the same for MovRegToDerefN variants.
 enum AsmInstr {
 	MovImm32ToReg64 {
 		imm_src: Imm32,
 		reg_dst: Reg64,
+	},
+	MovImm64ToReg64 {
+		imm_src: Imm64,
+		reg_dst: Reg64,
+	},
+	MovDeref64Reg64ToReg64 {
+		reg_as_ptr_src: Reg64,
+		reg_dst: Reg64,
+	},
+	MovReg64ToDeref64Reg64 {
+		reg_src: Reg64,
+		reg_as_ptr_dst: Reg64,
 	},
 	Syscall,
 	/// This is a fake instruction that doesn't generate any machine code.
@@ -300,6 +333,45 @@ impl AsmInstr {
 				machine_code.extend(imm_src.to_binary(layout));
 				machine_code
 			},
+			AsmInstr::MovImm64ToReg64 { imm_src, reg_dst } => {
+				// MOV r64, imm64
+				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
+				let rex_prefix = rex_prefix_byte(1, reg_dst_id_high_bit, 0, 0);
+				let opcode_byte = 0xb8 + reg_dst_id_low_3_bits;
+				let mut machine_code = vec![rex_prefix, opcode_byte];
+				machine_code.extend(imm_src.to_binary(layout));
+				machine_code
+			},
+			AsmInstr::MovDeref64Reg64ToReg64 { reg_as_ptr_src, reg_dst } => {
+				// MOV r64, r/m64
+				assert!(
+					*reg_as_ptr_src != Reg64::Rsp && *reg_as_ptr_src != Reg64::Rbp,
+					"The addressing forms with the ModR/M byte look a bit funky for these registers, \
+					maybe just move the address to dereference to an other register..."
+				);
+				let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
+					separate_bit_b_in_bxxx(reg_as_ptr_src.id());
+				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
+				let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
+				let rex_prefix = rex_prefix_byte(1, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
+				let opcode_byte = 0x8b;
+				vec![rex_prefix, opcode_byte, mod_rm]
+			},
+			AsmInstr::MovReg64ToDeref64Reg64 { reg_src, reg_as_ptr_dst } => {
+				// MOV r/m64, r64
+				assert!(
+					*reg_as_ptr_dst != Reg64::Rsp && *reg_as_ptr_dst != Reg64::Rbp,
+					"The addressing forms with the ModR/M byte look a bit funky for these registers, \
+					maybe just move the address to dereference to an other register..."
+				);
+				let (reg_src_id_high_bit, reg_src_id_low_3_bits) = separate_bit_b_in_bxxx(reg_src.id());
+				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
+					separate_bit_b_in_bxxx(reg_as_ptr_dst.id());
+				let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
+				let rex_prefix = rex_prefix_byte(1, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
+				let opcode_byte = 0x89;
+				vec![rex_prefix, opcode_byte, mod_rm]
+			},
 			AsmInstr::Syscall => vec![0x0f, 0x05],
 			AsmInstr::Label { .. } => vec![],
 			AsmInstr::JumpToLabel { label_name } => {
@@ -322,6 +394,9 @@ impl AsmInstr {
 	fn machine_code_size(&self) -> usize {
 		match self {
 			AsmInstr::MovImm32ToReg64 { .. } => 7,
+			AsmInstr::MovImm64ToReg64 { .. } => 10,
+			AsmInstr::MovDeref64Reg64ToReg64 { .. } => 3,
+			AsmInstr::MovReg64ToDeref64Reg64 { .. } => 3,
 			AsmInstr::Syscall => 2,
 			AsmInstr::Label { .. } => 0,
 			AsmInstr::JumpToLabel { .. } => 5,
@@ -398,8 +473,36 @@ fn main() {
 	let message_offset_in_data = bin.data_bytes.len();
 	bin.data_bytes.extend(message);
 
+	let value = b"nyaaa :3";
+	let value_offset_in_data = bin.data_bytes.len();
+	bin.data_bytes.extend(value);
+
 	use AsmInstr::*;
 	bin.asm_instrs = vec![
+		MovImm64ToReg64 {
+			imm_src: Imm64::DataAddr { offset_in_data_segment: value_offset_in_data as u64 },
+			reg_dst: Reg64::Rax,
+		},
+		MovImm64ToReg64 {
+			imm_src: Imm64::DataAddr { offset_in_data_segment: message_offset_in_data as u64 },
+			reg_dst: Reg64::Rbx,
+		},
+		MovDeref64Reg64ToReg64 { reg_as_ptr_src: Reg64::Rax, reg_dst: Reg64::Rax },
+		MovReg64ToDeref64Reg64 { reg_src: Reg64::Rax, reg_as_ptr_dst: Reg64::Rbx },
+		// Write(message) syscall but with `mov`s of 64-bits immediate values
+		MovImm64ToReg64 { imm_src: Imm64::Const(1), reg_dst: Reg64::Rax },
+		MovImm64ToReg64 { imm_src: Imm64::Const(1), reg_dst: Reg64::Rdi },
+		MovImm64ToReg64 {
+			imm_src: Imm64::DataAddr { offset_in_data_segment: message_offset_in_data as u64 },
+			reg_dst: Reg64::Rsi,
+		},
+		MovImm64ToReg64 { imm_src: Imm64::Const(message.len() as u64), reg_dst: Reg64::Rdx },
+		Syscall,
+		// Exit(0) syscall
+		MovImm32ToReg64 { imm_src: Imm32::Const(60), reg_dst: Reg64::Rax },
+		MovImm32ToReg64 { imm_src: Imm32::Const(0), reg_dst: Reg64::Rdi },
+		Syscall,
+		//
 		Label { name: "loop_xd".to_string() },
 		// Write(message) syscall
 		MovImm32ToReg64 { imm_src: Imm32::Const(1), reg_dst: Reg64::Rax },
@@ -410,6 +513,7 @@ fn main() {
 		},
 		MovImm32ToReg64 { imm_src: Imm32::Const(message.len() as u32), reg_dst: Reg64::Rdx },
 		Syscall,
+		//
 		JumpToLabel { label_name: "loop_xd".to_string() },
 		// Exit(0) syscall
 		MovImm32ToReg64 { imm_src: Imm32::Const(60), reg_dst: Reg64::Rax },
