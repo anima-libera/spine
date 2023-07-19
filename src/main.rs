@@ -164,6 +164,9 @@ impl Binary {
 
 		// Program header table
 		let mut program_header_table_entry_count = 0;
+		const FLAG_READABLE: u32 = 1 << 0;
+		const FLAG_WRITABLE: u32 = 1 << 1;
+		const FLAG_EXECUTABLE: u32 = 1 << 2;
 		{
 			// Code segment
 			let offset = Binary::CODE_OFFSET_IN_BINARY as u64;
@@ -172,7 +175,7 @@ impl Binary {
 			let size = self.code_size_in_binary() as u64;
 
 			buf.write_u32(1); // Loadable segment
-			buf.write_u32((1 << 0/*Readable*/) | (1 << 1/*Writable*/) | (1 << 2/*Executable*/)); // Flags
+			buf.write_u32(FLAG_READABLE | FLAG_WRITABLE | FLAG_EXECUTABLE); // Flags
 			buf.write_u64(offset); // Offset in binary
 			buf.write_u64(address); // Address in virtual memory
 			buf.write_u64(address); // Address in physical memory (wtf)
@@ -193,7 +196,7 @@ impl Binary {
 			let size = self.data_size_in_binary() as u64;
 
 			buf.write_u32(1); // Loadable segment
-			buf.write_u32((1 << 0/*Readable*/) | (1 << 1/*Writable*/) | (1 << 2/*Executable*/)); // Flags
+			buf.write_u32(FLAG_READABLE | FLAG_WRITABLE | FLAG_EXECUTABLE); // Flags
 			buf.write_u64(offset); // Offset in binary
 			buf.write_u64(address); // Address in virtual memory
 			buf.write_u64(address); // Address in physical memory (wtf)
@@ -222,40 +225,125 @@ impl Binary {
 		assert_eq!(data_bytes.len(), self.data_size_in_binary());
 		buf.write_bytes(&data_bytes);
 
+		// Definitely one of the ELF executables of all times!
 		buf.into_bytes()
+
+		// Thank you for using my compiler~ <3
+
+		// If you have comments or suggestions about this project
+		// or even just want to chat, my Discord is anima_libera
+	}
+}
+
+// Immediate values `Imm8`, `Imm32` and `Imm64` can sometimes represent something (like a memory
+// address of something in the data segment for example) that isn't just a raw number.
+// Immediate values can also just be a raw number (either signed or unsigned btw).
+// We make the difference here, with `Raw8`, `Raw32` and `Raw64` being different types than
+// immediate value types, and immediate value types being convertible to raw values given
+// some layout information available at the time assembly code is not being generated anymore
+// and is ready to be converted to machine code, at the end.
+// Unless there is a good reason, assembly instruction variants should hold immediate values
+// with the `ImmN` types instead of the `RawN` types or the `uN`/`iN` types.
+
+#[derive(Clone, Copy)]
+enum Raw8 {
+	Signed(i8),
+	Unsigned(u8),
+}
+#[derive(Clone, Copy)]
+enum Raw32 {
+	Signed(i32),
+	Unsigned(u32),
+}
+#[derive(Clone, Copy)]
+enum Raw64 {
+	Signed(i64),
+	Unsigned(u64),
+}
+
+macro_rules! impl_raw_is_signed {
+	($raw_n:ty) => {
+		impl $raw_n {
+			fn is_signed(self) -> bool {
+				match self {
+					Self::Signed(_) => true,
+					Self::Unsigned(_) => false,
+				}
+			}
+		}
+	};
+}
+impl_raw_is_signed!(Raw8);
+impl_raw_is_signed!(Raw32);
+impl_raw_is_signed!(Raw64);
+
+macro_rules! impl_raw_to_bytes {
+	($raw_n:ty, $fn_name:ident, $as_unsigned:ty, $as_signed:ty, $size:literal) => {
+		impl $raw_n {
+			fn $fn_name(self) -> [u8; $size] {
+				match self {
+					Self::Signed(value) => (value as $as_signed).to_le_bytes(),
+					Self::Unsigned(value) => (value as $as_unsigned).to_le_bytes(),
+				}
+			}
+		}
+	};
+}
+impl_raw_to_bytes!(Raw64, to_8_bytes, i64, u64, 8);
+impl_raw_to_bytes!(Raw32, to_8_bytes, i64, u64, 8);
+impl_raw_to_bytes!(Raw32, to_4_bytes, i32, u32, 4);
+impl_raw_to_bytes!(Raw8, to_8_bytes, i64, u64, 8);
+impl_raw_to_bytes!(Raw8, to_4_bytes, i32, u32, 4);
+impl_raw_to_bytes!(Raw8, to_1_bytes, i8, u8, 1);
+
+enum Imm8 {
+	Raw(Raw8),
+}
+
+impl Imm8 {
+	fn to_raw_8(&self, _layout: &Layout) -> Raw8 {
+		match self {
+			Imm8::Raw(raw) => *raw,
+		}
 	}
 }
 
 enum Imm32 {
 	DataAddr { offset_in_data_segment: u32 },
-	Const(u32),
+	Raw(Raw32),
 }
 
 impl Imm32 {
-	fn to_binary(&self, layout: &Layout) -> [u8; 4] {
+	fn to_raw_32(&self, layout: &Layout) -> Raw32 {
 		match self {
 			Imm32::DataAddr { offset_in_data_segment } => {
-				(layout.data_segment_address as u32 + offset_in_data_segment).to_le_bytes()
+				Raw32::Unsigned(layout.data_segment_address as u32 + offset_in_data_segment)
 			},
-			Imm32::Const(value) => value.to_le_bytes(),
+			Imm32::Raw(raw) => *raw,
 		}
 	}
 }
 
 enum Imm64 {
 	DataAddr { offset_in_data_segment: u64 },
-	Const(u64),
+	Raw(Raw64),
 }
 
 impl Imm64 {
-	fn to_binary(&self, layout: &Layout) -> [u8; 8] {
+	fn to_raw_64(&self, layout: &Layout) -> Raw64 {
 		match self {
 			Imm64::DataAddr { offset_in_data_segment } => {
-				(layout.data_segment_address as u64 + offset_in_data_segment).to_le_bytes()
+				Raw64::Unsigned(layout.data_segment_address as u64 + offset_in_data_segment)
 			},
-			Imm64::Const(value) => value.to_le_bytes(),
+			Imm64::Raw(raw) => *raw,
 		}
 	}
+}
+
+enum Imm {
+	Imm8(Imm8),
+	Imm32(Imm32),
+	Imm64(Imm64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -287,12 +375,8 @@ impl Reg64 {
 // - TODO: Merge the MovDerefNToReg variants by adding an enum to describe N in a field,
 // and do the same for MovRegToDerefN variants.
 enum AsmInstr {
-	MovImm32ToReg64 {
-		imm_src: Imm32,
-		reg_dst: Reg64,
-	},
-	MovImm64ToReg64 {
-		imm_src: Imm64,
+	MovImmToReg64 {
+		imm_src: Imm,
 		reg_dst: Reg64,
 	},
 	MovDeref64Reg64ToReg64 {
@@ -323,23 +407,46 @@ impl AsmInstr {
 	// TODO: Make it so that every call doesn't allocate a `Vec`. This is a bit silly >w<
 	fn to_machine_code(&self, layout: &Layout, instr_address: usize) -> Vec<u8> {
 		let bytes = match self {
-			AsmInstr::MovImm32ToReg64 { imm_src, reg_dst } => {
-				// MOV r/m64, imm32
-				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
-				let mod_rm = mod_rm_byte(0b11, 0, reg_dst_id_low_3_bits);
-				let rex_prefix = rex_prefix_byte(1, reg_dst_id_high_bit, 0, 0);
-				let opcode_byte = 0xc7;
-				let mut machine_code = vec![rex_prefix, opcode_byte, mod_rm];
-				machine_code.extend(imm_src.to_binary(layout));
-				machine_code
-			},
-			AsmInstr::MovImm64ToReg64 { imm_src, reg_dst } => {
+			AsmInstr::MovImmToReg64 { imm_src, reg_dst } => {
 				// MOV r64, imm64
+
+				// TODO: Use variants that take up less bytes when possible.
+				// Beware sign extension vs zero extension stuff tho!
+				// Here is a relic of the past to help:
+				// if imm_src.is_signed() {
+				//    // MOV r/m64, imm32
+				//    // This MOV variant sign-extends the imm32, which is only fine for signed values.
+				//    let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
+				//       separate_bit_b_in_bxxx(reg_dst.id());
+				//    let mod_rm = mod_rm_byte(0b11, 0, reg_dst_id_low_3_bits);
+				//    let rex_prefix = rex_prefix_byte(1, reg_dst_id_high_bit, 0, 0);
+				//    let opcode_byte = 0xc7;
+				//    let mut machine_code = vec![rex_prefix, opcode_byte, mod_rm];
+				//    machine_code.extend(imm_src.to_binary(layout));
+				//    machine_code
+				// } else {
+				//    // MOV r32, imm32
+				//    // This MOV variant zero-extends the imm32 (but it doesn't work for MOV r8, imm8,
+				//    // see https://stackoverflow.com/q/11177137 for details).
+				//    let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
+				//       separate_bit_b_in_bxxx(reg_dst.id());
+				//    let rex_prefix = rex_prefix_byte(0, reg_dst_id_high_bit, 0, 0);
+				//    let opcode_byte = 0xb8 + reg_dst_id_low_3_bits;
+				//    let mut machine_code = vec![rex_prefix, opcode_byte];
+				//    machine_code.extend(imm_src.to_binary(layout));
+				//    machine_code
+				// }
+
+				let imm_as_8_bytes = match imm_src {
+					Imm::Imm64(imm64) => imm64.to_raw_64(layout).to_8_bytes(),
+					Imm::Imm32(imm32) => imm32.to_raw_32(layout).to_8_bytes(),
+					Imm::Imm8(imm8) => imm8.to_raw_8(layout).to_8_bytes(),
+				};
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
 				let rex_prefix = rex_prefix_byte(1, reg_dst_id_high_bit, 0, 0);
 				let opcode_byte = 0xb8 + reg_dst_id_low_3_bits;
 				let mut machine_code = vec![rex_prefix, opcode_byte];
-				machine_code.extend(imm_src.to_binary(layout));
+				machine_code.extend(imm_as_8_bytes);
 				machine_code
 			},
 			AsmInstr::MovDeref64Reg64ToReg64 { reg_as_ptr_src, reg_dst } => {
@@ -393,8 +500,7 @@ impl AsmInstr {
 
 	fn machine_code_size(&self) -> usize {
 		match self {
-			AsmInstr::MovImm32ToReg64 { .. } => 7,
-			AsmInstr::MovImm64ToReg64 { .. } => 10,
+			AsmInstr::MovImmToReg64 { .. } => 10,
 			AsmInstr::MovDeref64Reg64ToReg64 { .. } => 3,
 			AsmInstr::MovReg64ToDeref64Reg64 { .. } => 3,
 			AsmInstr::Syscall => 2,
@@ -479,45 +585,84 @@ fn main() {
 
 	use AsmInstr::*;
 	bin.asm_instrs = vec![
-		MovImm64ToReg64 {
-			imm_src: Imm64::DataAddr { offset_in_data_segment: value_offset_in_data as u64 },
+		// Kinda do *(uint64_t*)message = *(uint64_t*)value;
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::DataAddr {
+				offset_in_data_segment: value_offset_in_data as u64,
+			}),
 			reg_dst: Reg64::Rax,
 		},
-		MovImm64ToReg64 {
-			imm_src: Imm64::DataAddr { offset_in_data_segment: message_offset_in_data as u64 },
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::DataAddr {
+				offset_in_data_segment: message_offset_in_data as u64,
+			}),
 			reg_dst: Reg64::Rbx,
 		},
 		MovDeref64Reg64ToReg64 { reg_as_ptr_src: Reg64::Rax, reg_dst: Reg64::Rax },
 		MovReg64ToDeref64Reg64 { reg_src: Reg64::Rax, reg_as_ptr_dst: Reg64::Rbx },
-		// Write(message) syscall but with `mov`s of 64-bits immediate values
-		MovImm64ToReg64 { imm_src: Imm64::Const(1), reg_dst: Reg64::Rax },
-		MovImm64ToReg64 { imm_src: Imm64::Const(1), reg_dst: Reg64::Rdi },
-		MovImm64ToReg64 {
-			imm_src: Imm64::DataAddr { offset_in_data_segment: message_offset_in_data as u64 },
+		// Write(message) syscall
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+			reg_dst: Reg64::Rax,
+		},
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+			reg_dst: Reg64::Rdi,
+		},
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::DataAddr {
+				offset_in_data_segment: message_offset_in_data as u64,
+			}),
 			reg_dst: Reg64::Rsi,
 		},
-		MovImm64ToReg64 { imm_src: Imm64::Const(message.len() as u64), reg_dst: Reg64::Rdx },
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(message.len() as u64))),
+			reg_dst: Reg64::Rdx,
+		},
 		Syscall,
 		// Exit(0) syscall
-		MovImm32ToReg64 { imm_src: Imm32::Const(60), reg_dst: Reg64::Rax },
-		MovImm32ToReg64 { imm_src: Imm32::Const(0), reg_dst: Reg64::Rdi },
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(60))),
+			reg_dst: Reg64::Rax,
+		},
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(0))),
+			reg_dst: Reg64::Rdi,
+		},
 		Syscall,
 		//
 		Label { name: "loop_xd".to_string() },
 		// Write(message) syscall
-		MovImm32ToReg64 { imm_src: Imm32::Const(1), reg_dst: Reg64::Rax },
-		MovImm32ToReg64 { imm_src: Imm32::Const(1), reg_dst: Reg64::Rdi },
-		MovImm32ToReg64 {
-			imm_src: Imm32::DataAddr { offset_in_data_segment: message_offset_in_data as u32 },
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+			reg_dst: Reg64::Rax,
+		},
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+			reg_dst: Reg64::Rdi,
+		},
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::DataAddr {
+				offset_in_data_segment: message_offset_in_data as u64,
+			}),
 			reg_dst: Reg64::Rsi,
 		},
-		MovImm32ToReg64 { imm_src: Imm32::Const(message.len() as u32), reg_dst: Reg64::Rdx },
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(message.len() as u64))),
+			reg_dst: Reg64::Rdx,
+		},
 		Syscall,
 		//
 		JumpToLabel { label_name: "loop_xd".to_string() },
 		// Exit(0) syscall
-		MovImm32ToReg64 { imm_src: Imm32::Const(60), reg_dst: Reg64::Rax },
-		MovImm32ToReg64 { imm_src: Imm32::Const(0), reg_dst: Reg64::Rdi },
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(60))),
+			reg_dst: Reg64::Rax,
+		},
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(0))),
+			reg_dst: Reg64::Rdi,
+		},
 		Syscall,
 	];
 
