@@ -369,9 +369,14 @@ impl Reg64 {
 	}
 }
 
+#[derive(Clone, Copy)]
+enum BaseSize {
+	Size8,
+	Size32,
+	Size64,
+}
+
 // - TODO: Add support for Imm8 and for deref 32 and 8 bits in both src and dst.
-// - TODO: Make an Imm enum type that is either Imm8, Imm32 or Imm64 and merge the MovImmToReg
-// instruction variants.
 // - TODO: Merge the MovDerefNToReg variants by adding an enum to describe N in a field,
 // and do the same for MovRegToDerefN variants.
 enum AsmInstr {
@@ -379,11 +384,15 @@ enum AsmInstr {
 		imm_src: Imm,
 		reg_dst: Reg64,
 	},
-	MovDeref64Reg64ToReg64 {
+	MovDerefReg64ToReg64 {
+		/// How large is the memory region to read from?
+		src_size: BaseSize,
 		reg_as_ptr_src: Reg64,
 		reg_dst: Reg64,
 	},
-	MovReg64ToDeref64Reg64 {
+	MovReg64ToDerefReg64 {
+		/// How large is the memory region to write to?
+		dst_size: BaseSize,
 		reg_src: Reg64,
 		reg_as_ptr_dst: Reg64,
 	},
@@ -449,35 +458,51 @@ impl AsmInstr {
 				machine_code.extend(imm_as_8_bytes);
 				machine_code
 			},
-			AsmInstr::MovDeref64Reg64ToReg64 { reg_as_ptr_src, reg_dst } => {
-				// MOV r64, r/m64
-				assert!(
-					*reg_as_ptr_src != Reg64::Rsp && *reg_as_ptr_src != Reg64::Rbp,
-					"The addressing forms with the ModR/M byte look a bit funky for these registers, \
-					maybe just move the address to dereference to an other register..."
-				);
-				let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
-					separate_bit_b_in_bxxx(reg_as_ptr_src.id());
-				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
-				let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
-				let rex_prefix = rex_prefix_byte(1, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
-				let opcode_byte = 0x8b;
-				vec![rex_prefix, opcode_byte, mod_rm]
+			AsmInstr::MovDerefReg64ToReg64 { src_size, reg_as_ptr_src, reg_dst } => {
+				match src_size {
+					BaseSize::Size64 => {
+						// MOV r64, r/m64
+						assert!(
+							*reg_as_ptr_src != Reg64::Rsp && *reg_as_ptr_src != Reg64::Rbp,
+							"The addressing forms with the ModR/M byte look a bit funky \
+							for these registers, maybe just move the address to dereference \
+							to an other register..."
+						);
+						let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
+							separate_bit_b_in_bxxx(reg_as_ptr_src.id());
+						let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
+							separate_bit_b_in_bxxx(reg_dst.id());
+						let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
+						let rex_prefix = rex_prefix_byte(1, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
+						let opcode_byte = 0x8b;
+						vec![rex_prefix, opcode_byte, mod_rm]
+					},
+					BaseSize::Size32 => todo!(),
+					BaseSize::Size8 => todo!(),
+				}
 			},
-			AsmInstr::MovReg64ToDeref64Reg64 { reg_src, reg_as_ptr_dst } => {
-				// MOV r/m64, r64
-				assert!(
-					*reg_as_ptr_dst != Reg64::Rsp && *reg_as_ptr_dst != Reg64::Rbp,
-					"The addressing forms with the ModR/M byte look a bit funky for these registers, \
-					maybe just move the address to dereference to an other register..."
-				);
-				let (reg_src_id_high_bit, reg_src_id_low_3_bits) = separate_bit_b_in_bxxx(reg_src.id());
-				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
-					separate_bit_b_in_bxxx(reg_as_ptr_dst.id());
-				let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
-				let rex_prefix = rex_prefix_byte(1, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
-				let opcode_byte = 0x89;
-				vec![rex_prefix, opcode_byte, mod_rm]
+			AsmInstr::MovReg64ToDerefReg64 { dst_size, reg_src, reg_as_ptr_dst } => {
+				match dst_size {
+					BaseSize::Size64 => {
+						// MOV r/m64, r64
+						assert!(
+							*reg_as_ptr_dst != Reg64::Rsp && *reg_as_ptr_dst != Reg64::Rbp,
+							"The addressing forms with the ModR/M byte look a bit funky \
+							for these registers, maybe just move the address to dereference \
+							to an other register..."
+						);
+						let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
+							separate_bit_b_in_bxxx(reg_src.id());
+						let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
+							separate_bit_b_in_bxxx(reg_as_ptr_dst.id());
+						let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
+						let rex_prefix = rex_prefix_byte(1, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
+						let opcode_byte = 0x89;
+						vec![rex_prefix, opcode_byte, mod_rm]
+					},
+					BaseSize::Size32 => todo!(),
+					BaseSize::Size8 => todo!(),
+				}
 			},
 			AsmInstr::Syscall => vec![0x0f, 0x05],
 			AsmInstr::Label { .. } => vec![],
@@ -501,8 +526,8 @@ impl AsmInstr {
 	fn machine_code_size(&self) -> usize {
 		match self {
 			AsmInstr::MovImmToReg64 { .. } => 10,
-			AsmInstr::MovDeref64Reg64ToReg64 { .. } => 3,
-			AsmInstr::MovReg64ToDeref64Reg64 { .. } => 3,
+			AsmInstr::MovDerefReg64ToReg64 { .. } => 3,
+			AsmInstr::MovReg64ToDerefReg64 { .. } => 3,
 			AsmInstr::Syscall => 2,
 			AsmInstr::Label { .. } => 0,
 			AsmInstr::JumpToLabel { .. } => 5,
@@ -598,8 +623,16 @@ fn main() {
 			}),
 			reg_dst: Reg64::Rbx,
 		},
-		MovDeref64Reg64ToReg64 { reg_as_ptr_src: Reg64::Rax, reg_dst: Reg64::Rax },
-		MovReg64ToDeref64Reg64 { reg_src: Reg64::Rax, reg_as_ptr_dst: Reg64::Rbx },
+		MovDerefReg64ToReg64 {
+			src_size: BaseSize::Size64,
+			reg_as_ptr_src: Reg64::Rax,
+			reg_dst: Reg64::Rax,
+		},
+		MovReg64ToDerefReg64 {
+			dst_size: BaseSize::Size64,
+			reg_src: Reg64::Rax,
+			reg_as_ptr_dst: Reg64::Rbx,
+		},
 		// Write(message) syscall
 		MovImmToReg64 {
 			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
