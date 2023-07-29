@@ -422,6 +422,7 @@ impl AsmInstr {
 				// TODO: Use variants that take up less bytes when possible.
 				// Beware sign extension vs zero extension stuff tho!
 				// Here is a relic of the past to help:
+				//
 				// if imm_src.is_signed() {
 				//    // MOV r/m64, imm32
 				//    // This MOV variant sign-extends the imm32, which is only fine for signed values.
@@ -459,50 +460,44 @@ impl AsmInstr {
 				machine_code
 			},
 			AsmInstr::MovDerefReg64ToReg64 { src_size, reg_as_ptr_src, reg_dst } => {
-				match src_size {
-					BaseSize::Size64 => {
-						// MOV r64, r/m64
-						assert!(
-							*reg_as_ptr_src != Reg64::Rsp && *reg_as_ptr_src != Reg64::Rbp,
-							"The addressing forms with the ModR/M byte look a bit funky \
-							for these registers, maybe just move the address to dereference \
-							to an other register..."
-						);
-						let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
-							separate_bit_b_in_bxxx(reg_as_ptr_src.id());
-						let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
-							separate_bit_b_in_bxxx(reg_dst.id());
-						let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
-						let rex_prefix = rex_prefix_byte(1, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
-						let opcode_byte = 0x8b;
-						vec![rex_prefix, opcode_byte, mod_rm]
-					},
-					BaseSize::Size32 => todo!(),
-					BaseSize::Size8 => todo!(),
-				}
+				// `MOV r64, r/m64` or `MOV r32, r/m32` or `MOV r8, r/m8`
+				assert!(
+					*reg_as_ptr_src != Reg64::Rsp && *reg_as_ptr_src != Reg64::Rbp,
+					"The addressing forms with the ModR/M byte look a bit funky \
+					for these registers, maybe just move the address to dereference \
+					to an other register..."
+				);
+				let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
+					separate_bit_b_in_bxxx(reg_as_ptr_src.id());
+				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
+				let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
+				let (rex_w, opcode_byte) = match src_size {
+					BaseSize::Size64 => (1, 0x8b),
+					BaseSize::Size32 => (0, 0x8b),
+					BaseSize::Size8 => (0, 0x8a),
+				};
+				let rex_prefix = rex_prefix_byte(rex_w, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
+				vec![rex_prefix, opcode_byte, mod_rm]
 			},
 			AsmInstr::MovReg64ToDerefReg64 { dst_size, reg_src, reg_as_ptr_dst } => {
-				match dst_size {
-					BaseSize::Size64 => {
-						// MOV r/m64, r64
-						assert!(
-							*reg_as_ptr_dst != Reg64::Rsp && *reg_as_ptr_dst != Reg64::Rbp,
-							"The addressing forms with the ModR/M byte look a bit funky \
+				// MOV r/m64, r64
+				assert!(
+					*reg_as_ptr_dst != Reg64::Rsp && *reg_as_ptr_dst != Reg64::Rbp,
+					"The addressing forms with the ModR/M byte look a bit funky \
 							for these registers, maybe just move the address to dereference \
 							to an other register..."
-						);
-						let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
-							separate_bit_b_in_bxxx(reg_src.id());
-						let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
-							separate_bit_b_in_bxxx(reg_as_ptr_dst.id());
-						let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
-						let rex_prefix = rex_prefix_byte(1, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
-						let opcode_byte = 0x89;
-						vec![rex_prefix, opcode_byte, mod_rm]
-					},
-					BaseSize::Size32 => todo!(),
-					BaseSize::Size8 => todo!(),
-				}
+				);
+				let (reg_src_id_high_bit, reg_src_id_low_3_bits) = separate_bit_b_in_bxxx(reg_src.id());
+				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
+					separate_bit_b_in_bxxx(reg_as_ptr_dst.id());
+				let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
+				let (rex_w, opcode_byte) = match dst_size {
+					BaseSize::Size64 => (1, 0x89),
+					BaseSize::Size32 => (0, 0x89),
+					BaseSize::Size8 => (0, 0x88),
+				};
+				let rex_prefix = rex_prefix_byte(rex_w, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
+				vec![rex_prefix, opcode_byte, mod_rm]
 			},
 			AsmInstr::Syscall => vec![0x0f, 0x05],
 			AsmInstr::Label { .. } => vec![],
@@ -610,7 +605,7 @@ fn main() {
 
 	use AsmInstr::*;
 	bin.asm_instrs = vec![
-		// Kinda do *(uint64_t*)message = *(uint64_t*)value;
+		// Kinda do *(uint8_t*)message = *(uint8_t*)value;
 		MovImmToReg64 {
 			imm_src: Imm::Imm64(Imm64::DataAddr {
 				offset_in_data_segment: value_offset_in_data as u64,
@@ -624,12 +619,12 @@ fn main() {
 			reg_dst: Reg64::Rbx,
 		},
 		MovDerefReg64ToReg64 {
-			src_size: BaseSize::Size64,
+			src_size: BaseSize::Size8,
 			reg_as_ptr_src: Reg64::Rax,
 			reg_dst: Reg64::Rax,
 		},
 		MovReg64ToDerefReg64 {
-			dst_size: BaseSize::Size64,
+			dst_size: BaseSize::Size8,
 			reg_src: Reg64::Rax,
 			reg_as_ptr_dst: Reg64::Rbx,
 		},
