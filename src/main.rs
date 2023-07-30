@@ -376,9 +376,6 @@ enum BaseSize {
 	Size64,
 }
 
-// - TODO: Add support for Imm8 and for deref 32 and 8 bits in both src and dst.
-// - TODO: Merge the MovDerefNToReg variants by adding an enum to describe N in a field,
-// and do the same for MovRegToDerefN variants.
 enum AsmInstr {
 	MovImmToReg64 {
 		imm_src: Imm,
@@ -395,6 +392,10 @@ enum AsmInstr {
 		dst_size: BaseSize,
 		reg_src: Reg64,
 		reg_as_ptr_dst: Reg64,
+	},
+	AddReg64ToReg64 {
+		reg_src: Reg64,
+		reg_dst: Reg64,
 	},
 	Syscall,
 	/// This is a fake instruction that doesn't generate any machine code.
@@ -417,7 +418,7 @@ impl AsmInstr {
 	fn to_machine_code(&self, layout: &Layout, instr_address: usize) -> Vec<u8> {
 		let bytes = match self {
 			AsmInstr::MovImmToReg64 { imm_src, reg_dst } => {
-				// MOV r64, imm64
+				// `MOV r64, imm64`
 
 				// TODO: Use variants that take up less bytes when possible.
 				// Beware sign extension vs zero extension stuff tho!
@@ -480,7 +481,7 @@ impl AsmInstr {
 				vec![rex_prefix, opcode_byte, mod_rm]
 			},
 			AsmInstr::MovReg64ToDerefReg64 { dst_size, reg_src, reg_as_ptr_dst } => {
-				// MOV r/m64, r64
+				// `MOV r/m64, r64` or `MOV r/m32, r32` or `MOV r/m8, r8`
 				assert!(
 					*reg_as_ptr_dst != Reg64::Rsp && *reg_as_ptr_dst != Reg64::Rbp,
 					"The addressing forms with the ModR/M byte look a bit funky \
@@ -499,10 +500,18 @@ impl AsmInstr {
 				let rex_prefix = rex_prefix_byte(rex_w, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
 				vec![rex_prefix, opcode_byte, mod_rm]
 			},
+			AsmInstr::AddReg64ToReg64 { reg_src, reg_dst } => {
+				let (reg_src_id_high_bit, reg_src_id_low_3_bits) = separate_bit_b_in_bxxx(reg_src.id());
+				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
+				let mod_rm = mod_rm_byte(0b11, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
+				let rex_prefix = rex_prefix_byte(1, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
+				let opcode_byte = 0x01;
+				vec![rex_prefix, opcode_byte, mod_rm]
+			},
 			AsmInstr::Syscall => vec![0x0f, 0x05],
 			AsmInstr::Label { .. } => vec![],
 			AsmInstr::JumpToLabel { label_name } => {
-				// JMP rel32
+				// `JMP rel32`
 				// Note that the (relative) (signed) displacement is from the address of
 				// the instruction that follows the jump instruction.
 				let next_instr_address = instr_address + self.machine_code_size();
@@ -523,6 +532,7 @@ impl AsmInstr {
 			AsmInstr::MovImmToReg64 { .. } => 10,
 			AsmInstr::MovDerefReg64ToReg64 { .. } => 3,
 			AsmInstr::MovReg64ToDerefReg64 { .. } => 3,
+			AsmInstr::AddReg64ToReg64 { .. } => 3,
 			AsmInstr::Syscall => 2,
 			AsmInstr::Label { .. } => 0,
 			AsmInstr::JumpToLabel { .. } => 5,
@@ -605,7 +615,7 @@ fn main() {
 
 	use AsmInstr::*;
 	bin.asm_instrs = vec![
-		// Kinda do *(uint8_t*)message = *(uint8_t*)value;
+		// Kinda do *(uint8_t*)message = (-1)+(*(uint8_t*)value); so we sould see "mewwo :3"
 		MovImmToReg64 {
 			imm_src: Imm::Imm64(Imm64::DataAddr {
 				offset_in_data_segment: value_offset_in_data as u64,
@@ -618,11 +628,16 @@ fn main() {
 			}),
 			reg_dst: Reg64::Rbx,
 		},
+		MovImmToReg64 {
+			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Signed(-1))),
+			reg_dst: Reg64::Rcx,
+		},
 		MovDerefReg64ToReg64 {
 			src_size: BaseSize::Size8,
 			reg_as_ptr_src: Reg64::Rax,
 			reg_dst: Reg64::Rax,
 		},
+		AddReg64ToReg64 { reg_src: Reg64::Rcx, reg_dst: Reg64::Rax },
 		MovReg64ToDerefReg64 {
 			dst_size: BaseSize::Size8,
 			reg_src: Reg64::Rax,
