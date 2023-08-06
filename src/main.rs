@@ -381,17 +381,25 @@ enum AsmInstr {
 		imm_src: Imm,
 		reg_dst: Reg64,
 	},
+	/// Does `dst = *src`, with `src` being interpreted as a pointer to a 8, 32 or 64 bits area.
 	MovDerefReg64ToReg64 {
 		/// How large is the memory region to read from?
 		src_size: BaseSize,
 		reg_as_ptr_src: Reg64,
 		reg_dst: Reg64,
 	},
+	/// Does `*dst = src`, with `dst` being interpreted as a pointer to a 8, 32 or 64 bits area.
 	MovReg64ToDerefReg64 {
 		/// How large is the memory region to write to?
 		dst_size: BaseSize,
 		reg_src: Reg64,
 		reg_as_ptr_dst: Reg64,
+	},
+	PushReg64 {
+		reg_src: Reg64,
+	},
+	PopToReg64 {
+		reg_dst: Reg64,
 	},
 	AddReg64ToReg64 {
 		reg_src: Reg64,
@@ -454,7 +462,7 @@ impl AsmInstr {
 					Imm::Imm8(imm8) => imm8.to_raw_8(layout).to_8_bytes(),
 				};
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
-				let rex_prefix = rex_prefix_byte(1, reg_dst_id_high_bit, 0, 0);
+				let rex_prefix = rex_prefix_byte(1, 0, 0, reg_dst_id_high_bit);
 				let opcode_byte = 0xb8 + reg_dst_id_low_3_bits;
 				let mut machine_code = vec![rex_prefix, opcode_byte];
 				machine_code.extend(imm_as_8_bytes);
@@ -500,7 +508,22 @@ impl AsmInstr {
 				let rex_prefix = rex_prefix_byte(rex_w, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
 				vec![rex_prefix, opcode_byte, mod_rm]
 			},
+			AsmInstr::PushReg64 { reg_src } => {
+				// `PUSH r64`
+				let (reg_src_id_high_bit, reg_src_id_low_3_bits) = separate_bit_b_in_bxxx(reg_src.id());
+				let rex_prefix = rex_prefix_byte(1, 0, 0, reg_src_id_high_bit);
+				let opcode_byte = 0x50 + reg_src_id_low_3_bits;
+				vec![rex_prefix, opcode_byte]
+			},
+			AsmInstr::PopToReg64 { reg_dst } => {
+				// `POP r64`
+				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
+				let rex_prefix = rex_prefix_byte(1, 0, 0, reg_dst_id_high_bit);
+				let opcode_byte = 0x58 + reg_dst_id_low_3_bits;
+				vec![rex_prefix, opcode_byte]
+			},
 			AsmInstr::AddReg64ToReg64 { reg_src, reg_dst } => {
+				// `ADD r/m64, r64`
 				let (reg_src_id_high_bit, reg_src_id_low_3_bits) = separate_bit_b_in_bxxx(reg_src.id());
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
 				let mod_rm = mod_rm_byte(0b11, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
@@ -533,6 +556,8 @@ impl AsmInstr {
 			AsmInstr::MovDerefReg64ToReg64 { .. } => 3,
 			AsmInstr::MovReg64ToDerefReg64 { .. } => 3,
 			AsmInstr::AddReg64ToReg64 { .. } => 3,
+			AsmInstr::PushReg64 { .. } => 2,
+			AsmInstr::PopToReg64 { .. } => 2,
 			AsmInstr::Syscall => 2,
 			AsmInstr::Label { .. } => 0,
 			AsmInstr::JumpToLabel { .. } => 5,
