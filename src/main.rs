@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::collections::HashMap;
 
 struct ByteBuffer {
@@ -37,7 +39,7 @@ byte_buffer_fn_write!(write_u64, u64);
 // get copied into the memory, at some address (that depends on the offset of the stuff in the
 // binary but also on weather that stuff is code or data or whatever and some other stuff).
 // The offset in the binary and the address in the memory are related but are not to be confused
-// between. These may be refered to as the *offset* and the *address* respectively.
+// with each other. These may be refered to as the *offset* and the *address* respectively.
 
 struct Binary {
 	entry_point_offset_in_code: usize,
@@ -228,10 +230,7 @@ impl Binary {
 		// Definitely one of the ELF executables of all times!
 		buf.into_bytes()
 
-		// Thank you for using my compiler~ <3
-
-		// If you have comments or suggestions about this project
-		// or even just want to chat, my Discord is anima_libera
+		// Thank you for using/reading my compiler~ <3
 	}
 }
 
