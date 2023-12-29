@@ -626,112 +626,88 @@ fn separate_bit_b_in_bxxx(four_bit_value: U4) -> (Bit, U3) {
 	(high_bit, low_3_bits)
 }
 
+enum SpineType {
+	I64,
+}
+
+enum SpineValue {
+	I64(i64),
+}
+
+enum SpineInstr {
+	PushConst(SpineValue),
+	PopI64AndPrintAsChar,
+	Exit,
+}
+
+struct SpineProgram {
+	instrs: Vec<SpineInstr>,
+}
+
 fn main() {
+	let program = SpineProgram {
+		instrs: vec![
+			SpineInstr::PushConst(SpineValue::I64(10)),
+			SpineInstr::PushConst(SpineValue::I64(97)),
+			SpineInstr::PopI64AndPrintAsChar,
+			SpineInstr::PopI64AndPrintAsChar,
+			SpineInstr::Exit,
+		],
+	};
+
 	let mut bin = Binary::new();
 
-	let message = b"hewwo :3\n";
-	let message_offset_in_data = bin.data_bytes.len();
-	bin.data_bytes.extend(message);
-
-	let value = b"nyaaa :3";
-	let value_offset_in_data = bin.data_bytes.len();
-	bin.data_bytes.extend(value);
-
 	use AsmInstr::*;
-	bin.asm_instrs = vec![
-		// Kinda do *(uint8_t*)message = (-1)+(*(uint8_t*)value); so we sould see "mewwo :3"
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::DataAddr {
-				offset_in_data_segment: value_offset_in_data as u64,
-			}),
-			reg_dst: Reg64::Rax,
-		},
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::DataAddr {
-				offset_in_data_segment: message_offset_in_data as u64,
-			}),
-			reg_dst: Reg64::Rbx,
-		},
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Signed(-1))),
-			reg_dst: Reg64::Rcx,
-		},
-		MovDerefReg64ToReg64 {
-			src_size: BaseSize::Size8,
-			reg_as_ptr_src: Reg64::Rax,
-			reg_dst: Reg64::Rax,
-		},
-		AddReg64ToReg64 { reg_src: Reg64::Rcx, reg_dst: Reg64::Rax },
-		MovReg64ToDerefReg64 {
-			dst_size: BaseSize::Size8,
-			reg_src: Reg64::Rax,
-			reg_as_ptr_dst: Reg64::Rbx,
-		},
-		// Write(message) syscall
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
-			reg_dst: Reg64::Rax,
-		},
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
-			reg_dst: Reg64::Rdi,
-		},
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::DataAddr {
-				offset_in_data_segment: message_offset_in_data as u64,
-			}),
-			reg_dst: Reg64::Rsi,
-		},
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(message.len() as u64))),
-			reg_dst: Reg64::Rdx,
-		},
-		Syscall,
-		// Exit(0) syscall
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(60))),
-			reg_dst: Reg64::Rax,
-		},
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(0))),
-			reg_dst: Reg64::Rdi,
-		},
-		Syscall,
-		//
-		Label { name: "loop_xd".to_string() },
-		// Write(message) syscall
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
-			reg_dst: Reg64::Rax,
-		},
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
-			reg_dst: Reg64::Rdi,
-		},
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::DataAddr {
-				offset_in_data_segment: message_offset_in_data as u64,
-			}),
-			reg_dst: Reg64::Rsi,
-		},
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(message.len() as u64))),
-			reg_dst: Reg64::Rdx,
-		},
-		Syscall,
-		//
-		JumpToLabel { label_name: "loop_xd".to_string() },
-		// Exit(0) syscall
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(60))),
-			reg_dst: Reg64::Rax,
-		},
-		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(0))),
-			reg_dst: Reg64::Rdi,
-		},
-		Syscall,
-	];
+
+	for instr in program.instrs.iter() {
+		match instr {
+			SpineInstr::PushConst(SpineValue::I64(value)) => {
+				bin.asm_instrs.extend([
+					MovImmToReg64 {
+						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Signed(*value))),
+						reg_dst: Reg64::Rax,
+					},
+					PushReg64 { reg_src: Reg64::Rax },
+				]);
+			},
+			SpineInstr::PopI64AndPrintAsChar => {
+				bin.asm_instrs.extend([
+					// Write(message) syscall
+					MovImmToReg64 {
+						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+						reg_dst: Reg64::Rax, // Syscall number
+					},
+					MovImmToReg64 {
+						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+						reg_dst: Reg64::Rdi, // Stdout file descriptor
+					},
+					PushReg64 { reg_src: Reg64::Rsp },
+					PopToReg64 { reg_dst: Reg64::Rsi }, // String address
+					MovImmToReg64 {
+						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+						reg_dst: Reg64::Rdx, // String length
+					},
+					Syscall,
+					// Pop
+					PopToReg64 { reg_dst: Reg64::Rsi },
+				]);
+			},
+			SpineInstr::Exit => {
+				bin.asm_instrs.extend([
+					// Exit(0) syscall
+					MovImmToReg64 {
+						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(60))),
+						reg_dst: Reg64::Rax, // Syscall number
+					},
+					MovImmToReg64 {
+						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(0))),
+						reg_dst: Reg64::Rdi, // Exit code, 0 means all good
+					},
+					Syscall,
+				]);
+			},
+		}
+	}
 
 	for byte in bin.code_segment_binary_machine_code() {
 		print!("{byte:02x}");
@@ -739,4 +715,130 @@ fn main() {
 	println!();
 
 	std::fs::write("binary", bin.to_binary()).unwrap();
+}
+
+#[cfg(test)]
+mod test {
+	use super::*;
+
+	#[test]
+	fn test_1() {
+		let mut bin = Binary::new();
+
+		let message = b"hewwo :3\n";
+		let message_offset_in_data = bin.data_bytes.len();
+		bin.data_bytes.extend(message);
+
+		let value = b"nyaaa :3";
+		let value_offset_in_data = bin.data_bytes.len();
+		bin.data_bytes.extend(value);
+
+		use AsmInstr::*;
+		bin.asm_instrs = vec![
+			// Kinda do *(uint8_t*)message = (-1)+(*(uint8_t*)value); so we sould see "mewwo :3"
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::DataAddr {
+					offset_in_data_segment: value_offset_in_data as u64,
+				}),
+				reg_dst: Reg64::Rax,
+			},
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::DataAddr {
+					offset_in_data_segment: message_offset_in_data as u64,
+				}),
+				reg_dst: Reg64::Rbx,
+			},
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Signed(-1))),
+				reg_dst: Reg64::Rcx,
+			},
+			MovDerefReg64ToReg64 {
+				src_size: BaseSize::Size8,
+				reg_as_ptr_src: Reg64::Rax,
+				reg_dst: Reg64::Rax,
+			},
+			AddReg64ToReg64 { reg_src: Reg64::Rcx, reg_dst: Reg64::Rax },
+			MovReg64ToDerefReg64 {
+				dst_size: BaseSize::Size8,
+				reg_src: Reg64::Rax,
+				reg_as_ptr_dst: Reg64::Rbx,
+			},
+			// Write(message) syscall
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+				reg_dst: Reg64::Rax,
+			},
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+				reg_dst: Reg64::Rdi,
+			},
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::DataAddr {
+					offset_in_data_segment: message_offset_in_data as u64,
+				}),
+				reg_dst: Reg64::Rsi,
+			},
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(message.len() as u64))),
+				reg_dst: Reg64::Rdx,
+			},
+			Syscall,
+			// Exit(0) syscall
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(60))),
+				reg_dst: Reg64::Rax,
+			},
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(0))),
+				reg_dst: Reg64::Rdi,
+			},
+			Syscall,
+			//
+			Label { name: "loop_xd".to_string() },
+			// Write(message) syscall
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+				reg_dst: Reg64::Rax,
+			},
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+				reg_dst: Reg64::Rdi,
+			},
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::DataAddr {
+					offset_in_data_segment: message_offset_in_data as u64,
+				}),
+				reg_dst: Reg64::Rsi,
+			},
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(message.len() as u64))),
+				reg_dst: Reg64::Rdx,
+			},
+			Syscall,
+			//
+			JumpToLabel { label_name: "loop_xd".to_string() },
+			// Exit(0) syscall
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(60))),
+				reg_dst: Reg64::Rax,
+			},
+			MovImmToReg64 {
+				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(0))),
+				reg_dst: Reg64::Rdi,
+			},
+			Syscall,
+		];
+
+		for byte in bin.code_segment_binary_machine_code() {
+			print!("{byte:02x}");
+		}
+		println!();
+
+		std::fs::write("binary", bin.to_binary()).unwrap();
+
+		let binary_execution_result = std::process::Command::new("./binary").output().unwrap();
+		let binary_execution_output =
+			std::str::from_utf8(binary_execution_result.stdout.as_slice()).unwrap();
+		assert_eq!(binary_execution_output, "mewwo :3\n");
+	}
 }
