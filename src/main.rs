@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, os::unix::fs::PermissionsExt};
 
 struct ByteBuffer {
 	bytes: Vec<u8>,
@@ -945,6 +945,15 @@ fn main() {
 	println!();
 
 	std::fs::write("binary", bin.to_binary()).unwrap();
+	chmod_x("binary");
+}
+
+fn chmod_x(path: impl AsRef<std::path::Path>) {
+	let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+	let permission_flags = permissions.mode();
+	let executable_mask = 0b0001001001; // drwxrwxrwx, we set the xs to 1
+	permissions.set_mode(permission_flags | executable_mask);
+	std::fs::set_permissions(path, permissions).unwrap();
 }
 
 #[cfg(test)]
@@ -952,7 +961,7 @@ mod test {
 	use super::*;
 
 	#[test]
-	fn test_1() {
+	fn some_assembly_instructions() {
 		let mut bin = Binary::new();
 
 		let message = b"hewwo :3\n";
@@ -1064,9 +1073,12 @@ mod test {
 		}
 		println!();
 
-		std::fs::write("binary", bin.to_binary()).unwrap();
+		std::fs::create_dir("test_binaries");
+		let dot_path = "./test_binaries/binary_some_assembly_instructions";
+		std::fs::write(dot_path, bin.to_binary()).unwrap();
+		chmod_x(dot_path);
 
-		let binary_execution_result = std::process::Command::new("./binary").output().unwrap();
+		let binary_execution_result = std::process::Command::new(dot_path).output().unwrap();
 		let binary_execution_output =
 			std::str::from_utf8(binary_execution_result.stdout.as_slice()).unwrap();
 		assert_eq!(binary_execution_output, "mewwo :3\n");
