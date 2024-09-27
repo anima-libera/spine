@@ -172,6 +172,14 @@ impl Imm {
 		}
 	}
 
+	pub(crate) fn whatever_raw(value: i64) -> Imm {
+		if value < 0 {
+			Self::signed_raw(value)
+		} else {
+			Self::unsigned_raw(value as u64)
+		}
+	}
+
 	pub(crate) fn is_signed(&self) -> bool {
 		match self {
 			Imm::Imm8(imm8) => imm8.is_signed(),

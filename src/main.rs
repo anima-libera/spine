@@ -46,7 +46,7 @@ fn main() {
 		match instr {
 			SpineInstr::PushConst(SpineValue::I64(value)) => {
 				bin.asm_instrs.extend([
-					MovImmToReg64 { imm_src: Imm::signed_raw(*value), reg_dst: Reg64::Rax },
+					MovImmToReg64 { imm_src: Imm::whatever_raw(*value), reg_dst: Reg64::Rax },
 					PushReg64 { reg_src: Reg64::Rax },
 				]);
 			},
@@ -54,17 +54,17 @@ fn main() {
 				bin.asm_instrs.extend([
 					// Write(message) syscall
 					MovImmToReg64 {
-						imm_src: Imm::unsigned_raw(1),
+						imm_src: Imm::whatever_raw(1),
 						reg_dst: Reg64::Rax, // Syscall number
 					},
 					MovImmToReg64 {
-						imm_src: Imm::unsigned_raw(1),
+						imm_src: Imm::whatever_raw(1),
 						reg_dst: Reg64::Rdi, // Stdout file descriptor
 					},
 					PushReg64 { reg_src: Reg64::Rsp },
 					PopToReg64 { reg_dst: Reg64::Rsi }, // String address
 					MovImmToReg64 {
-						imm_src: Imm::unsigned_raw(1),
+						imm_src: Imm::whatever_raw(1),
 						reg_dst: Reg64::Rdx, // String length
 					},
 					Syscall,
@@ -76,11 +76,11 @@ fn main() {
 				bin.asm_instrs.extend([
 					// Exit(0) syscall
 					MovImmToReg64 {
-						imm_src: Imm::unsigned_raw(60),
+						imm_src: Imm::whatever_raw(60),
 						reg_dst: Reg64::Rax, // Syscall number
 					},
 					MovImmToReg64 {
-						imm_src: Imm::unsigned_raw(0),
+						imm_src: Imm::whatever_raw(0),
 						reg_dst: Reg64::Rdi, // Exit code, 0 means all good
 					},
 					Syscall,
