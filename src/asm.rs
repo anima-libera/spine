@@ -1,208 +1,65 @@
-// Immediate values `Imm8`, `Imm32` and `Imm64` can sometimes represent something (like a memory
-// address of something in the data segment for example) that isn't just a raw number.
-// Immediate values can also just be a raw number (either signed or unsigned btw).
-// We make the difference here, with `Raw8`, `Raw32` and `Raw64` being different types than
-// immediate value types, and immediate value types being convertible to raw values given
-// some layout information available at the time assembly code is not being generated anymore
-// and is ready to be converted to machine code, at the end.
-// Unless there is a good reason, assembly instruction variants should hold immediate values
-// with the `ImmN` types instead of the `RawN` types or the `uN`/`iN` types.
+use crate::{elf::Layout, imm::Imm};
 
-use crate::elf::Layout;
+type U4 = u8;
+type U3 = u8;
+type U2 = u8;
+type Bit = u8;
 
-#[derive(Clone, Copy)]
-pub(crate) enum Raw8 {
-	Signed(i8),
-	Unsigned(u8),
-}
-#[derive(Clone, Copy)]
-pub(crate) enum Raw32 {
-	Signed(i32),
-	Unsigned(u32),
-}
-#[derive(Clone, Copy)]
-pub(crate) enum Raw64 {
-	Signed(i64),
-	Unsigned(u64),
+fn set_byte_bit(byte: &mut u8, bit_index: usize, bit_value: Bit) {
+	assert!(bit_value <= 1);
+	*byte |= bit_value << bit_index;
 }
 
-macro_rules! impl_raw_is_signed {
-	($raw_n:ty) => {
-		impl $raw_n {
-			pub(crate) fn is_signed(self) -> bool {
-				match self {
-					Self::Signed(_) => true,
-					Self::Unsigned(_) => false,
-				}
-			}
-		}
-	};
-}
-impl_raw_is_signed!(Raw8);
-impl_raw_is_signed!(Raw32);
-impl_raw_is_signed!(Raw64);
-
-macro_rules! impl_raw_is_zero {
-	($raw_n:ty) => {
-		impl $raw_n {
-			pub(crate) fn is_zero(self) -> bool {
-				match self {
-					Self::Signed(value) => value == 0,
-					Self::Unsigned(value) => value == 0,
-				}
-			}
-		}
-	};
-}
-impl_raw_is_zero!(Raw8);
-impl_raw_is_zero!(Raw32);
-impl_raw_is_zero!(Raw64);
-
-macro_rules! impl_raw_to_bytes {
-	($raw_n:ty, $fn_name:ident, $as_unsigned:ty, $as_signed:ty, $size:literal) => {
-		impl $raw_n {
-			pub(crate) fn $fn_name(self) -> [u8; $size] {
-				match self {
-					Self::Signed(value) => (value as $as_signed).to_le_bytes(),
-					Self::Unsigned(value) => (value as $as_unsigned).to_le_bytes(),
-				}
-			}
-		}
-	};
-}
-impl_raw_to_bytes!(Raw64, to_8_bytes, i64, u64, 8);
-impl_raw_to_bytes!(Raw32, to_8_bytes, i64, u64, 8);
-impl_raw_to_bytes!(Raw32, to_4_bytes, i32, u32, 4);
-impl_raw_to_bytes!(Raw8, to_8_bytes, i64, u64, 8);
-impl_raw_to_bytes!(Raw8, to_4_bytes, i32, u32, 4);
-impl_raw_to_bytes!(Raw8, to_1_bytes, i8, u8, 1);
-
-pub(crate) enum Imm8 {
-	Raw(Raw8),
+fn byte_from_bits(bits: &[Bit; 8]) -> u8 {
+	let mut byte = 0;
+	for (i, bit) in bits.iter().copied().rev().enumerate() {
+		set_byte_bit(&mut byte, i, bit);
+	}
+	byte
 }
 
-impl Imm8 {
-	pub(crate) fn to_raw_8(&self, _layout: &Layout) -> Raw8 {
-		match self {
-			Imm8::Raw(raw) => *raw,
-		}
-	}
-
-	pub(crate) fn is_signed(&self) -> bool {
-		matches!(self, Imm8::Raw(Raw8::Signed(_)))
-	}
-
-	pub(crate) fn is_raw_zero(&self) -> bool {
-		matches!(self, Imm8::Raw(raw8) if raw8.is_zero())
-	}
+/// Okay, the REX prefix. It is optional, one byte, and comes just before the opcode bytes.
+///
+/// Its format is `0100wrxb` (from high to low), where:
+/// - `w`: 1 means that the instruction uses 64-bits operands, 0 means it uses some default size,
+/// - `r` is an extra high bit that expands ModR/M.reg from 3 to 4 bits (r is the high bit),
+/// - `x` is an extra high bit that expands SIB.index from 3 to 4 bits (x is the high bit),
+/// - `b` is an extra high bit that expands *something* from 3 to 4 bits (b is the high bit),
+/// with *something* being one of:
+///   - ModR/M.r/m
+///   - SIB.base
+///   - the register in the 3 low bits of the opcode byte.
+fn rex_prefix_byte(w: Bit, r: Bit, x: Bit, b: Bit) -> u8 {
+	byte_from_bits(&[0, 1, 0, 0, w, r, x, b])
 }
 
-pub(crate) enum Imm32 {
-	DataAddr { offset_in_data_segment: u32 },
-	Raw(Raw32),
+/// Okay, the ModR/M byte. It is optional, one byte, and comes just after the opcode bytes
+/// (before the optional SIB byte and the optional displacement and the optional immediate).
+///
+/// Its format is `mod` (2 bits) then `reg` (3 bits) then `r/m` (3 bits) (from high to low), where:
+/// - `mod`: if it is 11 it means there is no addressing stuff hapenning (no dereferencing),
+/// if it is 00 it means there is *maybe* a simple dereferencing (or maybe not, the Table 2-2
+/// "32-Bit Addressing Forms with the ModR/M Byte" in the Intel x86_64 manual says there are
+/// some exceptions depending on the registers involved), if it is 01 or 10 it means there is
+/// *maybe* a dereferencing of an address added to an immediate offset.
+/// ***TODO** explain this better using § 2.1.3 "ModR/M and SIB Bytes" of the x86_64 manual.*
+/// - `reg` is either the 3 low bits of a register id that is in one of the operands,
+/// or a specific value that complements the opcode bytes.
+/// - `r/m` is also the 3 low bits of a register id that is in one of the operands (or not?
+/// idk, there may be more to it, ***TODO** explain this using § 2.1.3
+/// "ModR/M and SIB Bytes" of the x86_64 manual*).
+fn mod_rm_byte(mod_: U2, reg: U3, rm: U3) -> u8 {
+	assert!(mod_ <= 3);
+	assert!(reg <= 7);
+	assert!(rm <= 7);
+	mod_ << 6 | reg << 3 | rm
 }
 
-impl Imm32 {
-	pub(crate) fn to_raw_32(&self, layout: &Layout) -> Raw32 {
-		match self {
-			Imm32::DataAddr { offset_in_data_segment } => {
-				Raw32::Unsigned(layout.data_segment_address as u32 + offset_in_data_segment)
-			},
-			Imm32::Raw(raw) => *raw,
-		}
-	}
-
-	pub(crate) fn is_signed(&self) -> bool {
-		matches!(self, Imm32::Raw(Raw32::Signed(_)))
-	}
-
-	pub(crate) fn is_raw_zero(&self) -> bool {
-		matches!(self, Imm32::Raw(raw32) if raw32.is_zero())
-	}
-}
-
-pub(crate) enum Imm64 {
-	DataAddr { offset_in_data_segment: u64 },
-	Raw(Raw64),
-}
-
-impl Imm64 {
-	pub(crate) fn to_raw_64(&self, layout: &Layout) -> Raw64 {
-		match self {
-			Imm64::DataAddr { offset_in_data_segment } => {
-				Raw64::Unsigned(layout.data_segment_address as u64 + offset_in_data_segment)
-			},
-			Imm64::Raw(raw) => *raw,
-		}
-	}
-
-	pub(crate) fn is_signed(&self) -> bool {
-		matches!(self, Imm64::Raw(Raw64::Signed(_)))
-	}
-
-	pub(crate) fn is_raw_zero(&self) -> bool {
-		matches!(self, Imm64::Raw(raw64) if raw64.is_zero())
-	}
-}
-
-pub(crate) enum Imm {
-	Imm8(Imm8),
-	Imm32(Imm32),
-	Imm64(Imm64),
-}
-
-impl Imm {
-	pub(crate) fn signed_raw(value: i64) -> Imm {
-		if let Ok(value) = value.try_into() {
-			Imm::Imm8(Imm8::Raw(Raw8::Signed(value)))
-		} else if let Ok(value) = value.try_into() {
-			Imm::Imm32(Imm32::Raw(Raw32::Signed(value)))
-		} else {
-			Imm::Imm64(Imm64::Raw(Raw64::Signed(value)))
-		}
-	}
-
-	pub(crate) fn unsigned_raw(value: u64) -> Imm {
-		if let Ok(value) = value.try_into() {
-			Imm::Imm8(Imm8::Raw(Raw8::Unsigned(value)))
-		} else if let Ok(value) = value.try_into() {
-			Imm::Imm32(Imm32::Raw(Raw32::Unsigned(value)))
-		} else {
-			Imm::Imm64(Imm64::Raw(Raw64::Unsigned(value)))
-		}
-	}
-
-	pub(crate) fn whatever_raw(value: i64) -> Imm {
-		if value < 0 {
-			Self::signed_raw(value)
-		} else {
-			Self::unsigned_raw(value as u64)
-		}
-	}
-
-	pub(crate) fn is_signed(&self) -> bool {
-		match self {
-			Imm::Imm8(imm8) => imm8.is_signed(),
-			Imm::Imm32(imm32) => imm32.is_signed(),
-			Imm::Imm64(imm64) => imm64.is_signed(),
-		}
-	}
-
-	pub(crate) fn is_raw_zero(&self) -> bool {
-		match self {
-			Imm::Imm8(imm8) => imm8.is_raw_zero(),
-			Imm::Imm32(imm32) => imm32.is_raw_zero(),
-			Imm::Imm64(imm64) => imm64.is_raw_zero(),
-		}
-	}
-
-	pub(crate) fn to_8_bytes(&self, layout: &Layout) -> [u8; 8] {
-		match self {
-			Imm::Imm8(imm8) => imm8.to_raw_8(layout).to_8_bytes(),
-			Imm::Imm32(imm32) => imm32.to_raw_32(layout).to_8_bytes(),
-			Imm::Imm64(imm64) => imm64.to_raw_64(layout).to_8_bytes(),
-		}
-	}
+fn separate_bit_b_in_bxxx(four_bit_value: U4) -> (Bit, U3) {
+	assert!(four_bit_value <= 0b1111);
+	let high_bit = four_bit_value >> 3;
+	let low_3_bits = four_bit_value & 0b00000111;
+	(high_bit, low_3_bits)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,6 +93,8 @@ pub(crate) enum BaseSize {
 }
 
 pub(crate) enum AsmInstr {
+	/// Sets the register to the immediate value,
+	/// being careful about the zero/sign extentions when needed.
 	MovImmToReg64 {
 		imm_src: Imm,
 		reg_dst: Reg64,
@@ -571,66 +430,4 @@ impl ConfigForMovImmToReg64 {
 			},
 		}
 	}
-}
-
-type U4 = u8;
-type U3 = u8;
-type U2 = u8;
-type Bit = u8;
-
-fn set_byte_bit(byte: &mut u8, bit_index: usize, bit_value: Bit) {
-	assert!(bit_value <= 1);
-	*byte |= bit_value << bit_index;
-}
-
-fn byte_from_bits(bits: &[Bit; 8]) -> u8 {
-	let mut byte = 0;
-	for (i, bit) in bits.iter().copied().rev().enumerate() {
-		set_byte_bit(&mut byte, i, bit);
-	}
-	byte
-}
-
-/// Okay, the REX prefix. It is optional, one byte, and comes just before the opcode bytes.
-///
-/// Its format is `0100wrxb` (from high to low), where:
-/// - `w`: 1 means that the instruction uses 64-bits operands, 0 means it uses some default size,
-/// - `r` is an extra high bit that expands ModR/M.reg from 3 to 4 bits (r is the high bit),
-/// - `x` is an extra high bit that expands SIB.index from 3 to 4 bits (x is the high bit),
-/// - `b` is an extra high bit that expands *something* from 3 to 4 bits (b is the high bit),
-/// with *something* being one of:
-///   - ModR/M.r/m
-///   - SIB.base
-///   - the register in the 3 low bits of the opcode byte.
-fn rex_prefix_byte(w: Bit, r: Bit, x: Bit, b: Bit) -> u8 {
-	byte_from_bits(&[0, 1, 0, 0, w, r, x, b])
-}
-
-/// Okay, the ModR/M byte. It is optional, one byte, and comes just after the opcode bytes
-/// (before the optional SIB byte and the optional displacement and the optional immediate).
-///
-/// Its format is `mod` (2 bits) then `reg` (3 bits) then `r/m` (3 bits) (from high to low), where:
-/// - `mod`: if it is 11 it means there is no addressing stuff hapenning (no dereferencing),
-/// if it is 00 it means there is *maybe* a simple dereferencing (or maybe not, the Table 2-2
-/// "32-Bit Addressing Forms with the ModR/M Byte" in the Intel x86_64 manual says there are
-/// some exceptions depending on the registers involved), if it is 01 or 10 it means there is
-/// *maybe* a dereferencing of an address added to an immediate offset.
-/// ***TODO** explain this better using § 2.1.3 "ModR/M and SIB Bytes" of the x86_64 manual.*
-/// - `reg` is either the 3 low bits of a register id that is in one of the operands,
-/// or a specific value that complement the opcode bytes.
-/// - `r/m` is also the 3 low bits of a register id that is in one of the operands (or not?
-/// idk, there may be more to it, ***TODO** explain this using § 2.1.3
-/// "ModR/M and SIB Bytes" of the x86_64 manual*).
-fn mod_rm_byte(mod_: U2, reg: U3, rm: U3) -> u8 {
-	assert!(mod_ <= 3);
-	assert!(reg <= 7);
-	assert!(rm <= 7);
-	mod_ << 6 | reg << 3 | rm
-}
-
-fn separate_bit_b_in_bxxx(four_bit_value: U4) -> (Bit, U3) {
-	assert!(four_bit_value <= 0b1111);
-	let high_bit = four_bit_value >> 3;
-	let low_3_bits = four_bit_value & 0b00000111;
-	(high_bit, low_3_bits)
 }

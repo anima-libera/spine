@@ -1,8 +1,6 @@
-use std::u64;
-
-use asm::{BaseSize, Imm32, Imm64, Imm8, Raw32, Raw64, Raw8};
-
-use crate::*;
+use crate::asm::{AsmInstr, BaseSize, Reg64};
+use crate::elf::{chmod_x, Binary};
+use crate::imm::{Imm, Imm32, Imm64, Imm8, Raw32, Raw64, Raw8};
 
 #[test]
 fn some_assembly_instructions() {

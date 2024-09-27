@@ -1,10 +1,12 @@
 #![allow(unused)]
 
-use asm::{AsmInstr, Imm, Reg64};
+use asm::{AsmInstr, Reg64};
 use elf::{chmod_x, Binary};
+use imm::Imm;
 
 mod asm;
 mod elf;
+mod imm;
 
 #[cfg(test)]
 mod asm_test;
