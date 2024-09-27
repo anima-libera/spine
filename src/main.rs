@@ -276,6 +276,22 @@ impl_raw_is_signed!(Raw8);
 impl_raw_is_signed!(Raw32);
 impl_raw_is_signed!(Raw64);
 
+macro_rules! impl_raw_is_zero {
+	($raw_n:ty) => {
+		impl $raw_n {
+			fn is_zero(self) -> bool {
+				match self {
+					Self::Signed(value) => value == 0,
+					Self::Unsigned(value) => value == 0,
+				}
+			}
+		}
+	};
+}
+impl_raw_is_zero!(Raw8);
+impl_raw_is_zero!(Raw32);
+impl_raw_is_zero!(Raw64);
+
 macro_rules! impl_raw_to_bytes {
 	($raw_n:ty, $fn_name:ident, $as_unsigned:ty, $as_signed:ty, $size:literal) => {
 		impl $raw_n {
@@ -305,6 +321,14 @@ impl Imm8 {
 			Imm8::Raw(raw) => *raw,
 		}
 	}
+
+	fn is_signed(&self) -> bool {
+		matches!(self, Imm8::Raw(Raw8::Signed(_)))
+	}
+
+	fn is_raw_zero(&self) -> bool {
+		matches!(self, Imm8::Raw(raw8) if raw8.is_zero())
+	}
 }
 
 enum Imm32 {
@@ -320,6 +344,14 @@ impl Imm32 {
 			},
 			Imm32::Raw(raw) => *raw,
 		}
+	}
+
+	fn is_signed(&self) -> bool {
+		matches!(self, Imm32::Raw(Raw32::Signed(_)))
+	}
+
+	fn is_raw_zero(&self) -> bool {
+		matches!(self, Imm32::Raw(raw32) if raw32.is_zero())
 	}
 }
 
@@ -337,12 +369,66 @@ impl Imm64 {
 			Imm64::Raw(raw) => *raw,
 		}
 	}
+
+	fn is_signed(&self) -> bool {
+		matches!(self, Imm64::Raw(Raw64::Signed(_)))
+	}
+
+	fn is_raw_zero(&self) -> bool {
+		matches!(self, Imm64::Raw(raw64) if raw64.is_zero())
+	}
 }
 
 enum Imm {
 	Imm8(Imm8),
 	Imm32(Imm32),
 	Imm64(Imm64),
+}
+
+impl Imm {
+	fn signed_raw(value: i64) -> Imm {
+		if let Ok(value) = value.try_into() {
+			Imm::Imm8(Imm8::Raw(Raw8::Signed(value)))
+		} else if let Ok(value) = value.try_into() {
+			Imm::Imm32(Imm32::Raw(Raw32::Signed(value)))
+		} else {
+			Imm::Imm64(Imm64::Raw(Raw64::Signed(value)))
+		}
+	}
+
+	fn unsigned_raw(value: u64) -> Imm {
+		if let Ok(value) = value.try_into() {
+			Imm::Imm8(Imm8::Raw(Raw8::Unsigned(value)))
+		} else if let Ok(value) = value.try_into() {
+			Imm::Imm32(Imm32::Raw(Raw32::Unsigned(value)))
+		} else {
+			Imm::Imm64(Imm64::Raw(Raw64::Unsigned(value)))
+		}
+	}
+
+	fn is_signed(&self) -> bool {
+		match self {
+			Imm::Imm8(imm8) => imm8.is_signed(),
+			Imm::Imm32(imm32) => imm32.is_signed(),
+			Imm::Imm64(imm64) => imm64.is_signed(),
+		}
+	}
+
+	fn is_raw_zero(&self) -> bool {
+		match self {
+			Imm::Imm8(imm8) => imm8.is_raw_zero(),
+			Imm::Imm32(imm32) => imm32.is_raw_zero(),
+			Imm::Imm64(imm64) => imm64.is_raw_zero(),
+		}
+	}
+
+	fn to_8_bytes(&self, layout: &Layout) -> [u8; 8] {
+		match self {
+			Imm::Imm8(imm8) => imm8.to_raw_8(layout).to_8_bytes(),
+			Imm::Imm32(imm32) => imm32.to_raw_32(layout).to_8_bytes(),
+			Imm::Imm64(imm64) => imm64.to_raw_64(layout).to_8_bytes(),
+		}
+	}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -425,46 +511,68 @@ impl AsmInstr {
 	fn to_machine_code(&self, layout: &Layout, instr_address: usize) -> Vec<u8> {
 		let bytes = match self {
 			AsmInstr::MovImmToReg64 { imm_src, reg_dst } => {
-				// `MOV r64, imm64`
+				// `MOV r64, imm64` or `MOV r32, imm32` or `MOV r/m64, imm32`
+				// or (`XOR r32, r/m32` then `MOV r8, imm8`) or `XOR r32, r/m32`
 
-				// TODO: Use variants that take up less bytes when possible.
-				// Beware sign extension vs zero extension stuff tho!
-				// Here is a relic of the past to help:
-				//
-				// if imm_src.is_signed() {
-				//    // MOV r/m64, imm32
-				//    // This MOV variant sign-extends the imm32, which is only fine for signed values.
-				//    let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
-				//       separate_bit_b_in_bxxx(reg_dst.id());
-				//    let mod_rm = mod_rm_byte(0b11, 0, reg_dst_id_low_3_bits);
-				//    let rex_prefix = rex_prefix_byte(1, reg_dst_id_high_bit, 0, 0);
-				//    let opcode_byte = 0xc7;
-				//    let mut machine_code = vec![rex_prefix, opcode_byte, mod_rm];
-				//    machine_code.extend(imm_src.to_binary(layout));
-				//    machine_code
-				// } else {
-				//    // MOV r32, imm32
-				//    // This MOV variant zero-extends the imm32 (but it doesn't work for MOV r8, imm8,
-				//    // see https://stackoverflow.com/q/11177137 for details).
-				//    let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
-				//       separate_bit_b_in_bxxx(reg_dst.id());
-				//    let rex_prefix = rex_prefix_byte(0, reg_dst_id_high_bit, 0, 0);
-				//    let opcode_byte = 0xb8 + reg_dst_id_low_3_bits;
-				//    let mut machine_code = vec![rex_prefix, opcode_byte];
-				//    machine_code.extend(imm_src.to_binary(layout));
-				//    machine_code
-				// }
+				// Sorry, MOV has a lot of variants and here we try to use one that
+				// uses as few bytes as we can (with moderate effort),
+				// so there are a lot of cases.
 
-				let imm_as_8_bytes = match imm_src {
-					Imm::Imm64(imm64) => imm64.to_raw_64(layout).to_8_bytes(),
-					Imm::Imm32(imm32) => imm32.to_raw_32(layout).to_8_bytes(),
-					Imm::Imm8(imm8) => imm8.to_raw_8(layout).to_8_bytes(),
-				};
+				// If the value is zero, then we just zero the register without the need for
+				// moving an immediate value (that would be zero) after.
+				let only_zero_no_mov = imm_src.is_raw_zero();
+
+				// If the value is not zero, then we use some variant of MOV that corresponds
+				// to what this config says, there is even a case where we prepend a XOR instruction
+				// to zero the destination register before the MOV.
+				let config = ConfigForMovImmToReg64::get(imm_src, reg_dst);
+
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
-				let rex_prefix = rex_prefix_byte(1, 0, 0, reg_dst_id_high_bit);
-				let opcode_byte = 0xb8 + reg_dst_id_low_3_bits;
-				let mut machine_code = vec![rex_prefix, opcode_byte];
-				machine_code.extend(imm_as_8_bytes);
+				let mut machine_code = vec![];
+
+				if config.zero_before_and_8 || only_zero_no_mov {
+					// `XOR r32, r/m32` (zero extended so it zeros the whole 64 bit register)
+					let rex_prefix = rex_prefix_byte(0, reg_dst_id_high_bit, 0, reg_dst_id_high_bit);
+					let opcode_byte = 0x33;
+					let mod_rm = mod_rm_byte(0b11, reg_dst_id_low_3_bits, reg_dst_id_low_3_bits);
+					let needs_rex = reg_dst_id_high_bit == 1;
+					if needs_rex {
+						machine_code.extend([rex_prefix]);
+					}
+					machine_code.extend([opcode_byte, mod_rm]);
+				}
+
+				let need_mov = !only_zero_no_mov;
+				if need_mov {
+					let rex_prefix = rex_prefix_byte(config.rex_w, 0, 0, reg_dst_id_high_bit);
+					if config.zero_before_and_8 {
+						// `MOV r8, imm8`
+						assert_eq!(config.rex_w, 0);
+						let needs_rex = reg_dst_id_high_bit == 1;
+						let opcode_byte = 0xb0 + reg_dst_id_low_3_bits;
+						if needs_rex {
+							machine_code.extend([rex_prefix]);
+						}
+						machine_code.extend([opcode_byte]);
+					} else if config.signed_32 {
+						// `MOV r/m64, imm32`
+						assert_eq!(config.rex_w, 1);
+						let opcode_byte = 0xc7;
+						let mod_rm = mod_rm_byte(0b11, 0, reg_dst_id_low_3_bits);
+						machine_code.extend([rex_prefix, opcode_byte, mod_rm]);
+					} else {
+						// `MOV r64, imm64` or `MOV r32, imm32`
+						let opcode_byte = 0xb8 + reg_dst_id_low_3_bits;
+						let needs_rex = config.rex_w == 1 || reg_dst_id_high_bit == 1;
+						if needs_rex {
+							machine_code.extend([rex_prefix]);
+						}
+						machine_code.extend([opcode_byte]);
+					}
+					let imm_as_bytes = imm_src.to_8_bytes(layout);
+					machine_code.extend(&imm_as_bytes[..config.imm_size_in_bytes]);
+				}
+
 				machine_code
 			},
 			AsmInstr::MovDerefReg64ToReg64 { src_size, reg_as_ptr_src, reg_dst } => {
@@ -551,7 +659,37 @@ impl AsmInstr {
 
 	fn machine_code_size(&self) -> usize {
 		match self {
-			AsmInstr::MovImmToReg64 { .. } => 10,
+			AsmInstr::MovImmToReg64 { imm_src, reg_dst } => {
+				let (reg_dst_id_high_bit, _reg_dst_id_low_3_bits) =
+					separate_bit_b_in_bxxx(reg_dst.id());
+				let need_rex_r_bit = reg_dst_id_high_bit == 1;
+				if imm_src.is_raw_zero() {
+					// `XOR r32, r/m32`
+					2 + if need_rex_r_bit { 1 } else { 0 }
+				} else {
+					let config = ConfigForMovImmToReg64::get(imm_src, reg_dst);
+					if config.imm_size_in_bytes == 8 {
+						// `MOV r64, imm64`
+						assert_eq!(config.rex_w, 1);
+						10
+					} else if config.imm_size_in_bytes == 4 && config.signed_32 {
+						// `MOV r/m64, imm32`
+						assert_eq!(config.rex_w, 1);
+						7
+					} else if config.imm_size_in_bytes == 4 {
+						// `MOV r32, imm32`
+						assert_eq!(config.rex_w, 0);
+						5 + if need_rex_r_bit { 1 } else { 0 }
+					} else if config.imm_size_in_bytes == 1 {
+						// `XOR r32, r/m32` then `MOV r8, imm8`
+						assert_eq!(config.rex_w, 0);
+						assert!(!need_rex_r_bit);
+						4
+					} else {
+						unreachable!()
+					}
+				}
+			},
 			AsmInstr::MovDerefReg64ToReg64 { .. } => 3,
 			AsmInstr::MovReg64ToDerefReg64 { .. } => 3,
 			AsmInstr::AddReg64ToReg64 { .. } => 3,
@@ -560,6 +698,101 @@ impl AsmInstr {
 			AsmInstr::Syscall => 2,
 			AsmInstr::Label { .. } => 0,
 			AsmInstr::JumpToLabel { .. } => 5,
+		}
+	}
+}
+
+struct ConfigForMovImmToReg64 {
+	rex_w: Bit,
+	imm_size_in_bytes: usize,
+	/// Use the sign extended 32 bits MOV variant.
+	signed_32: bool,
+	/// Zero the register before and use the 8 bits MOV variant.
+	zero_before_and_8: bool,
+}
+impl ConfigForMovImmToReg64 {
+	fn get(imm_src: &Imm, reg_dst: &Reg64) -> Self {
+		match imm_src {
+			Imm::Imm64(imm64) => {
+				// `MOV r64, imm64`
+				Self {
+					rex_w: 1,
+					imm_size_in_bytes: 8,
+					signed_32: false,
+					zero_before_and_8: false,
+				}
+			},
+			Imm::Imm32(imm32) => {
+				if imm32.is_signed() {
+					// `MOV r/m64, imm32`, this sign extends the value
+					Self {
+						rex_w: 1,
+						imm_size_in_bytes: 4,
+						signed_32: true,
+						zero_before_and_8: false,
+					}
+				} else {
+					// `MOV r32, imm32`, this zero-extends the value
+					Self {
+						rex_w: 0,
+						imm_size_in_bytes: 4,
+						signed_32: false,
+						zero_before_and_8: false,
+					}
+				}
+			},
+			Imm::Imm8(imm8) => {
+				if imm8.is_signed() {
+					// `MOV r/m64, imm32`, this sign extends the value
+					//
+					// Note: The `MOV r/m64, imm8` variant does NOT sign extend the value
+					// (see https://stackoverflow.com/q/11177137 for more info on that)
+					// and we could use `MOVSX` to then sign extend the value
+					// (this one does not have an imm variant) but that instruction is 4 bytes
+					// and we only save 3 bytes by using `MOV r/m64, imm8`.
+					// In the end it would be one byte longer so it is not wirth it.
+					Self {
+						rex_w: 1,
+						imm_size_in_bytes: 4,
+						signed_32: true,
+						zero_before_and_8: false,
+					}
+				} else {
+					let (reg_dst_id_high_bit, _reg_dst_id_low_3_bits) =
+						separate_bit_b_in_bxxx(reg_dst.id());
+					let need_rex_r_bit = reg_dst_id_high_bit == 1;
+					if need_rex_r_bit {
+						// `MOV r32, imm32`, this zero-extends the value
+						//
+						// The two REX prefixes needed in this case if we happened to
+						// go with the config of the other branch happen to make is the same size
+						// but two instructions instead of one, so it is not worth it.
+						// This is better.
+						Self {
+							rex_w: 0,
+							imm_size_in_bytes: 4,
+							signed_32: false,
+							zero_before_and_8: false,
+						}
+					} else {
+						// `XOR r32, r/m32` then `MOV r8, imm8`
+						//
+						// Note: `MOV r8, imm8` does NOT zero extend the value, so we zero the
+						// desination register first with the good old xor reg reg.
+						// There is no need to use the 64-bit XOR variant because it zero extend
+						// the result anyway, so we can spare the REX prefix if the register
+						// doesn't need the REX.R bit. Dependeing on the register, the XOR
+						// takes either 2 or 3 bytes, so we actually spare either 0 or 1 byte
+						// so it is worth it.
+						Self {
+							rex_w: 0,
+							imm_size_in_bytes: 1,
+							signed_32: false,
+							zero_before_and_8: true,
+						}
+					}
+				}
+			},
 		}
 	}
 }
@@ -663,10 +896,7 @@ fn main() {
 		match instr {
 			SpineInstr::PushConst(SpineValue::I64(value)) => {
 				bin.asm_instrs.extend([
-					MovImmToReg64 {
-						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Signed(*value))),
-						reg_dst: Reg64::Rax,
-					},
+					MovImmToReg64 { imm_src: Imm::signed_raw(*value), reg_dst: Reg64::Rax },
 					PushReg64 { reg_src: Reg64::Rax },
 				]);
 			},
@@ -674,17 +904,17 @@ fn main() {
 				bin.asm_instrs.extend([
 					// Write(message) syscall
 					MovImmToReg64 {
-						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+						imm_src: Imm::unsigned_raw(1),
 						reg_dst: Reg64::Rax, // Syscall number
 					},
 					MovImmToReg64 {
-						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+						imm_src: Imm::unsigned_raw(1),
 						reg_dst: Reg64::Rdi, // Stdout file descriptor
 					},
 					PushReg64 { reg_src: Reg64::Rsp },
 					PopToReg64 { reg_dst: Reg64::Rsi }, // String address
 					MovImmToReg64 {
-						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+						imm_src: Imm::unsigned_raw(1),
 						reg_dst: Reg64::Rdx, // String length
 					},
 					Syscall,
@@ -696,11 +926,11 @@ fn main() {
 				bin.asm_instrs.extend([
 					// Exit(0) syscall
 					MovImmToReg64 {
-						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(60))),
+						imm_src: Imm::unsigned_raw(60),
 						reg_dst: Reg64::Rax, // Syscall number
 					},
 					MovImmToReg64 {
-						imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(0))),
+						imm_src: Imm::unsigned_raw(0),
 						reg_dst: Reg64::Rdi, // Exit code, 0 means all good
 					},
 					Syscall,
