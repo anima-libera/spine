@@ -322,7 +322,8 @@ impl AsmInstr {
 					if config.zero_before_and_8 {
 						// `MOV r8, imm8`
 						assert_eq!(config.rex_w, 0);
-						let needs_rex = reg_dst_id_high_bit == 1;
+						let register_will_be_confused = (4..=7).contains(&reg_dst.id());
+						let needs_rex = reg_dst_id_high_bit == 1 || register_will_be_confused;
 						let opcode_byte = 0xb0 + reg_dst_id_low_3_bits;
 						if needs_rex {
 							machine_code.extend([rex_prefix]);
@@ -458,7 +459,8 @@ impl AsmInstr {
 						// `XOR r32, r/m32` then `MOV r8, imm8`
 						assert_eq!(config.rex_w, 0);
 						assert!(!need_rex_r_bit);
-						4
+						let register_will_be_confused = (4..=7).contains(&reg_dst.id());
+						4 + if register_will_be_confused { 1 } else { 0 }
 					} else {
 						unreachable!()
 					}
@@ -627,7 +629,7 @@ fn mod_rm_byte(mod_: U2, reg: U3, rm: U3) -> u8 {
 }
 
 fn separate_bit_b_in_bxxx(four_bit_value: U4) -> (Bit, U3) {
-	assert!(four_bit_value <= 7);
+	assert!(four_bit_value <= 0b1111);
 	let high_bit = four_bit_value >> 3;
 	let low_3_bits = four_bit_value & 0b00000111;
 	(high_bit, low_3_bits)

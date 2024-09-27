@@ -59,7 +59,7 @@ fn main() {
 					},
 					MovImmToReg64 {
 						imm_src: Imm::whatever_raw(1),
-						reg_dst: Reg64::Rdi, // Stdout file descriptor
+						reg_dst: Reg64::Rdi, // File descriptor
 					},
 					PushReg64 { reg_src: Reg64::Rsp },
 					PopToReg64 { reg_dst: Reg64::Rsi }, // String address
