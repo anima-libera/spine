@@ -85,11 +85,17 @@ impl Reg64 {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BaseSize {
 	Size8,
 	Size32,
 	Size64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BaseSign {
+	Signed,
+	Unsigned,
 }
 
 pub(crate) enum AsmInstr {
@@ -103,6 +109,8 @@ pub(crate) enum AsmInstr {
 	MovDerefReg64ToReg64 {
 		/// How large is the memory region to read from?
 		src_size: BaseSize,
+		/// How signed is the value that is read?
+		src_sign: BaseSign,
 		reg_as_ptr_src: Reg64,
 		reg_dst: Reg64,
 	},
@@ -209,8 +217,11 @@ impl AsmInstr {
 
 				machine_code
 			},
-			AsmInstr::MovDerefReg64ToReg64 { src_size, reg_as_ptr_src, reg_dst } => {
-				// `MOV r64, r/m64` or `MOV r32, r/m32` or `MOV r8, r/m8`
+			AsmInstr::MovDerefReg64ToReg64 { src_size, src_sign, reg_as_ptr_src, reg_dst } => {
+				// `MOV r64, r/m64` or `MOV r32, r/m32`
+				// or (`MOV r32, r/m32` then `MOVSXD r64, r/m32`)
+				// or (`MOV r8, r/m8` then `MOVSX r64, r/m8`)
+				// or (`MOV r8, r/m8` then `MOVZX r64, r/m8`)
 				assert!(
 					*reg_as_ptr_src != Reg64::Rsp && *reg_as_ptr_src != Reg64::Rbp,
 					"The addressing forms with the ModR/M byte look a bit funky \
@@ -220,22 +231,46 @@ impl AsmInstr {
 				let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
 					separate_bit_b_in_bxxx(reg_as_ptr_src.id());
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
-				let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
+				let mod_rm = mod_rm_byte(0b00, reg_dst_id_low_3_bits, reg_src_id_low_3_bits);
 				let (rex_w, opcode_byte) = match src_size {
 					BaseSize::Size64 => (1, 0x8b),
 					BaseSize::Size32 => (0, 0x8b),
 					BaseSize::Size8 => (0, 0x8a),
 				};
-				let rex_prefix = rex_prefix_byte(rex_w, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
-				vec![rex_prefix, opcode_byte, mod_rm]
+				let rex_prefix = rex_prefix_byte(rex_w, reg_dst_id_high_bit, 0, reg_src_id_high_bit);
+				let mut machine_code = vec![rex_prefix, opcode_byte, mod_rm];
+
+				match (src_size, src_sign) {
+					(BaseSize::Size32, BaseSign::Signed) => {
+						// `MOVSXD r64, r/m32`
+						let rex_prefix = rex_prefix_byte(1, reg_dst_id_high_bit, 0, reg_dst_id_high_bit);
+						let mod_rm = mod_rm_byte(0b11, reg_dst_id_low_3_bits, reg_dst_id_low_3_bits);
+						machine_code.extend([rex_prefix, 0x63, mod_rm]);
+					},
+					(BaseSize::Size8, BaseSign::Signed) => {
+						// `MOVSX r64, r/m8`
+						let rex_prefix = rex_prefix_byte(1, reg_dst_id_high_bit, 0, reg_dst_id_high_bit);
+						let mod_rm = mod_rm_byte(0b11, reg_dst_id_low_3_bits, reg_dst_id_low_3_bits);
+						machine_code.extend([rex_prefix, 0x0f, 0xbe, mod_rm]);
+					},
+					(BaseSize::Size8, BaseSign::Unsigned) => {
+						// `MOVZX r64, r/m8`
+						let rex_prefix = rex_prefix_byte(1, reg_dst_id_high_bit, 0, reg_dst_id_high_bit);
+						let mod_rm = mod_rm_byte(0b11, reg_dst_id_low_3_bits, reg_dst_id_low_3_bits);
+						machine_code.extend([rex_prefix, 0x0f, 0xb6, mod_rm]);
+					},
+					_ => {},
+				}
+
+				machine_code
 			},
 			AsmInstr::MovReg64ToDerefReg64 { dst_size, reg_src, reg_as_ptr_dst } => {
 				// `MOV r/m64, r64` or `MOV r/m32, r32` or `MOV r/m8, r8`
 				assert!(
 					*reg_as_ptr_dst != Reg64::Rsp && *reg_as_ptr_dst != Reg64::Rbp,
 					"The addressing forms with the ModR/M byte look a bit funky \
-							for these registers, maybe just move the address to dereference \
-							to an other register..."
+					for these registers, maybe just move the address to dereference \
+					to an other register..."
 				);
 				let (reg_src_id_high_bit, reg_src_id_low_3_bits) = separate_bit_b_in_bxxx(reg_src.id());
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
@@ -325,7 +360,12 @@ impl AsmInstr {
 					}
 				}
 			},
-			AsmInstr::MovDerefReg64ToReg64 { .. } => 3,
+			AsmInstr::MovDerefReg64ToReg64 { src_size, src_sign, .. } => match (src_size, src_sign) {
+				(BaseSize::Size32, BaseSign::Signed) => 6,
+				(BaseSize::Size8, BaseSign::Signed) => 7,
+				(BaseSize::Size8, BaseSign::Unsigned) => 7,
+				_ => 3,
+			},
 			AsmInstr::MovReg64ToDerefReg64 { .. } => 3,
 			AsmInstr::AddReg64ToReg64 { .. } => 3,
 			AsmInstr::PushReg64 { .. } => 2,
