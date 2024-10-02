@@ -226,6 +226,13 @@ impl AsmInstr {
 					for these registers, maybe just move the address to dereference \
 					to an other register..."
 				);
+				assert!(
+					*reg_as_ptr_src != Reg64::R12
+						&& *reg_as_ptr_src != Reg64::R13
+						&& *reg_as_ptr_src != Reg64::R14
+						&& *reg_as_ptr_src != Reg64::R15,
+					"For some reason MOVing from [r12]-[r15] doesn't work for now >_<..."
+				);
 				let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
 					separate_bit_b_in_bxxx(reg_as_ptr_src.id());
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());

@@ -271,15 +271,15 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 	let regs_to_test = [
 		Reg64::Rax,
 		Reg64::Rbx,
-		//Reg64::Rcx,
-		//Reg64::Rdx,
-		////Reg64::Rbp,
-		//Reg64::Rdi,
-		//Reg64::Rsi,
-		//Reg64::R8,
-		//Reg64::R9,
-		//Reg64::R10,
-		//Reg64::R11,
+		Reg64::Rcx,
+		Reg64::Rdx,
+		//Reg64::Rbp,
+		Reg64::Rdi,
+		Reg64::Rsi,
+		Reg64::R8,
+		Reg64::R9,
+		Reg64::R10,
+		Reg64::R11,
 		//Reg64::R12,
 		//Reg64::R13,
 		//Reg64::R14,
@@ -349,6 +349,8 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 		}
 	}
 
+	let number_of_tests = regs_to_test.len() * (regs_to_test.len() - 1);
+
 	// The results were all pushed on the stack,
 	// now we extract them to be confronted to the expected results.
 	bin.asm_instrs.extend([
@@ -364,7 +366,7 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 		PushReg64 { reg_src: Reg64::Rsp },
 		PopToReg64 { reg_dst: Reg64::Rsi }, // String address
 		MovImmToReg64 {
-			imm_src: Imm::unsigned_raw(6 * 8 * (regs_to_test.len() as u64)),
+			imm_src: Imm::unsigned_raw(6 * 8 * (number_of_tests as u64)),
 			reg_dst: Reg64::Rdx, // String length
 		},
 		Syscall,
