@@ -25,7 +25,7 @@ fn byte_from_bits(bits: &[Bit; 8]) -> u8 {
 /// - `r` is an extra high bit that expands ModR/M.reg from 3 to 4 bits (r is the high bit),
 /// - `x` is an extra high bit that expands SIB.index from 3 to 4 bits (x is the high bit),
 /// - `b` is an extra high bit that expands *something* from 3 to 4 bits (b is the high bit),
-/// with *something* being one of:
+///   with *something* being one of:
 ///   - ModR/M.r/m
 ///   - SIB.base
 ///   - the register in the 3 low bits of the opcode byte.
@@ -38,16 +38,16 @@ fn rex_prefix_byte(w: Bit, r: Bit, x: Bit, b: Bit) -> u8 {
 ///
 /// Its format is `mod` (2 bits) then `reg` (3 bits) then `r/m` (3 bits) (from high to low), where:
 /// - `mod`: if it is 11 it means there is no addressing stuff hapenning (no dereferencing),
-/// if it is 00 it means there is *maybe* a simple dereferencing (or maybe not, the Table 2-2
-/// "32-Bit Addressing Forms with the ModR/M Byte" in the Intel x86_64 manual says there are
-/// some exceptions depending on the registers involved), if it is 01 or 10 it means there is
-/// *maybe* a dereferencing of an address added to an immediate offset.
-/// ***TODO** explain this better using § 2.1.3 "ModR/M and SIB Bytes" of the x86_64 manual.*
+///   if it is 00 it means there is *maybe* a simple dereferencing (or maybe not, the Table 2-2
+///   "32-Bit Addressing Forms with the ModR/M Byte" in the Intel x86_64 manual says there are
+///   some exceptions depending on the registers involved), if it is 01 or 10 it means there is
+///   *maybe* a dereferencing of an address added to an immediate offset.
+///   ***TODO** explain this better using § 2.1.3 "ModR/M and SIB Bytes" of the x86_64 manual.*
 /// - `reg` is either the 3 low bits of a register id that is in one of the operands,
-/// or a specific value that complements the opcode bytes.
+///   or a specific value that complements the opcode bytes.
 /// - `r/m` is also the 3 low bits of a register id that is in one of the operands (or not?
-/// idk, there may be more to it, ***TODO** explain this using § 2.1.3
-/// "ModR/M and SIB Bytes" of the x86_64 manual*).
+///   idk, there may be more to it, ***TODO** explain this using § 2.1.3
+///   "ModR/M and SIB Bytes" of the x86_64 manual*).
 fn mod_rm_byte(mod_: U2, reg: U3, rm: U3) -> u8 {
 	assert!(mod_ <= 3);
 	assert!(reg <= 7);
