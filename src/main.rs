@@ -114,12 +114,6 @@ struct TokenIntegerLiteral {
 	value_i64: Option<i64>,
 }
 
-impl TokenIntegerLiteral {
-	fn as_i64(&self) -> Option<i64> {
-		self.span.as_str().parse().ok()
-	}
-}
-
 enum ExplicitKeyword {
 	PrintChar,
 	Exit,
@@ -128,12 +122,6 @@ enum ExplicitKeyword {
 struct TokenExplicitKeyword {
 	span: SourceCodeSpan,
 	keyword: Option<ExplicitKeyword>,
-}
-
-impl TokenExplicitKeyword {
-	fn as_i64(&self) -> Option<i64> {
-		self.span.as_str().parse().ok()
-	}
 }
 
 enum Token {
