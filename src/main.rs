@@ -115,7 +115,9 @@ struct TokenIntegerLiteral {
 }
 
 enum ExplicitKeyword {
+	/// Pops an i64 and prints the character it represents as a unicode code point.
 	PrintChar,
+	/// Terminate the process execution by calling the exit syscall, with 0 as the exit code.
 	Exit,
 }
 
@@ -129,6 +131,7 @@ enum Token {
 	ExplicitKeyword(TokenExplicitKeyword),
 }
 
+/// Consumes and tokenizes the next token.
 fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 	reader.skip_whitespace();
 	let first_character = reader.peek_character();
@@ -166,6 +169,7 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 
 struct Tokenizer {
 	reader: SourceCodeReader,
+	/// Peeking tokens queues them, so that they are not tokenized again when popped.
 	queue: VecDeque<Token>,
 }
 
