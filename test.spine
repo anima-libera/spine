@@ -3,4 +3,7 @@
 --`exit;
 
 `printchar`printchar`printchar`printchar '\?''\u{fffd}''\d{65533}''\n'; -- prints ���
+--`exit;
+
+`printstr "Hello, World!\n";
 `exit;

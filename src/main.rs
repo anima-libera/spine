@@ -12,7 +12,7 @@ use std::{collections::VecDeque, rc::Rc};
 
 use asm::{AsmInstr, Reg64};
 use elf::{chmod_x, Binary};
-use imm::Imm;
+use imm::{Imm, Imm64};
 
 /// Used as `Rc<Self>`.
 struct SourceCode {
@@ -114,9 +114,18 @@ struct TokenCharacterLiteral {
 	character: char,
 }
 
+struct TokenStringLiteral {
+	span: SourceCodeSpan,
+	string: String,
+}
+
 enum ExplicitKeyword {
-	/// Pops an i64 and prints the ASCII character it represents as a unicode code point.
+	/// Pops an i64 and prints the ASCII character it represents.
 	PrintChar,
+	/// Pops an i64 (string length) then pops a pointer (to the string content),
+	/// then prints the UTF-8 encoded string.
+	/// It works well with string literals (`printstr "uwu\n"` does what we expect).
+	PrintStr,
 	/// Pops two i64 values, add them together, and push the result.
 	Add,
 	/// Terminate the process execution by calling the exit syscall, with 0 as the exit code.
@@ -137,9 +146,71 @@ struct TokenComment {
 enum Token {
 	IntegerLiteral(TokenIntegerLiteral),
 	CharacterLiteral(TokenCharacterLiteral),
+	StringLiteral(TokenStringLiteral),
 	ExplicitKeyword(TokenExplicitKeyword),
 	Semicolon(SourceCodeSpan),
 	Comment(TokenComment),
+}
+
+/// Consumes the source code representation of an escaped character,
+/// assuming we are in a string or character literal, and that we just popped a `\`.
+fn pop_escaped_character_from_reader(reader: &mut SourceCodeReader) -> char {
+	let hex_digit_to_value = |hex_digit| match hex_digit {
+		'0'..='9' => hex_digit as u32 - '0' as u32,
+		'a'..='f' => hex_digit as u32 - 'a' as u32 + 10,
+		'A'..='F' => hex_digit as u32 - 'A' as u32 + 10,
+		_ => panic!(),
+	};
+	match reader.pop_character().unwrap() {
+		'x' | 'X' => {
+			// `\x1b`, unicode code point (in `0..=255`) with exactly two hex digits.
+			let high = reader.pop_character().unwrap();
+			let low = reader.pop_character().unwrap();
+			let value = hex_digit_to_value(high) * 16 + hex_digit_to_value(low);
+			char::from_u32(value).unwrap()
+		},
+		'u' | 'U' => {
+			// `\u{fffd}`, unicode code point with hex digits.
+			assert_eq!(reader.pop_character(), Some('{'));
+			let mut value = 0;
+			loop {
+				let character = reader.pop_character().unwrap();
+				if character == '}' {
+					break;
+				}
+				value = value * 16 + hex_digit_to_value(character);
+			}
+			char::from_u32(value).unwrap()
+		},
+		'd' | 'D' => {
+			// `\d{65533}`, unicode code point with decimal digits.
+			assert_eq!(reader.pop_character(), Some('{'));
+			let mut value = 0;
+			loop {
+				let character = reader.pop_character().unwrap();
+				if character == '}' {
+					break;
+				}
+				assert!(character.is_ascii_digit());
+				value = value * 10 + hex_digit_to_value(character);
+			}
+			char::from_u32(value).unwrap()
+		},
+		'e' => '\x1b', // Escape
+		'a' => '\x07', // Bell
+		'b' => '\x08', // Backspace
+		'n' => '\n',   // Newline
+		't' => '\t',   // Tab
+		'r' => '\r',   // Carriage return
+		'v' => '\x0b', // Vertical tab
+		'f' => '\x0c', // Page break
+		'?' => '�',    // Replacement character
+		'0' => '\0',   // Null
+		'\\' => '\\',
+		'\'' => '\'',
+		'\"' => '\"',
+		_ => panic!(),
+	}
 }
 
 /// Consumes and tokenizes the next token.
@@ -162,62 +233,7 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 			reader.skip_character();
 			let character = if reader.peek_character() == Some('\\') {
 				reader.skip_character();
-				let hex_digit_to_value = |hex_digit| match hex_digit {
-					'0'..='9' => hex_digit as u32 - '0' as u32,
-					'a'..='f' => hex_digit as u32 - 'a' as u32 + 10,
-					'A'..='F' => hex_digit as u32 - 'A' as u32 + 10,
-					_ => panic!(),
-				};
-				match reader.pop_character().unwrap() {
-					'x' | 'X' => {
-						// `\x1b`, unicode code point (in `0..=255`) with exactly two hex digits.
-						let high = reader.pop_character().unwrap();
-						let low = reader.pop_character().unwrap();
-						let value = hex_digit_to_value(high) * 16 + hex_digit_to_value(low);
-						char::from_u32(value).unwrap()
-					},
-					'u' | 'U' => {
-						// `\u{fffd}`, unicode code point with hex digits.
-						assert_eq!(reader.pop_character(), Some('{'));
-						let mut value = 0;
-						loop {
-							let character = reader.pop_character().unwrap();
-							if character == '}' {
-								break;
-							}
-							value = value * 16 + hex_digit_to_value(character);
-						}
-						char::from_u32(value).unwrap()
-					},
-					'd' | 'D' => {
-						// `\d{65533}`, unicode code point with decimal digits.
-						assert_eq!(reader.pop_character(), Some('{'));
-						let mut value = 0;
-						loop {
-							let character = reader.pop_character().unwrap();
-							if character == '}' {
-								break;
-							}
-							assert!(character.is_ascii_digit());
-							value = value * 10 + hex_digit_to_value(character);
-						}
-						char::from_u32(value).unwrap()
-					},
-					'e' => '\x1b', // Escape
-					'a' => '\x07', // Bell
-					'b' => '\x08', // Backspace
-					'n' => '\n',   // Newline
-					't' => '\t',   // Tab
-					'r' => '\r',   // Carriage return
-					'v' => '\x0b', // Vertical tab
-					'f' => '\x0c', // Page break
-					'?' => '�',    // Replacement character
-					'0' => '\0',   // Null
-					'\\' => '\\',
-					'\'' => '\'',
-					'\"' => '\"',
-					_ => panic!(),
-				}
+				pop_escaped_character_from_reader(reader)
 			} else {
 				reader.pop_character().unwrap()
 			};
@@ -229,6 +245,27 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 			let token = Token::CharacterLiteral(TokenCharacterLiteral { span, character });
 			Some(token)
 		},
+		Some('\"') => {
+			reader.skip_character();
+			let mut string = String::new();
+			loop {
+				if reader.peek_character() == Some('\"') {
+					reader.skip_character();
+					break;
+				} else if reader.peek_character() == Some('\\') {
+					reader.skip_character();
+					string.push(pop_escaped_character_from_reader(reader));
+				} else {
+					string.push(reader.pop_character().unwrap());
+				};
+			}
+			let span = reader.passed_span(
+				pos_first_character.unwrap(),
+				reader.previous_character_pos().unwrap(),
+			);
+			let token = Token::StringLiteral(TokenStringLiteral { span, string });
+			Some(token)
+		},
 		Some('`') => {
 			reader.skip_character();
 			reader.skip_characters_while(|c| c.is_ascii_alphanumeric());
@@ -238,6 +275,7 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 			);
 			let keyword = match span.as_str() {
 				"`printchar" => Some(ExplicitKeyword::PrintChar),
+				"`printstr" => Some(ExplicitKeyword::PrintStr),
 				"`add" => Some(ExplicitKeyword::Add),
 				"`exit" => Some(ExplicitKeyword::Exit),
 				_ => None,
@@ -324,23 +362,28 @@ impl Tokenizer {
 #[derive(Debug, PartialEq, Eq)]
 enum SpineType {
 	I64,
+	DataAddr,
 }
 
 enum SpineValue {
 	I64(i64),
+	DataAddr { offset_in_data_segment: u64 },
 }
 
 impl SpineValue {
 	fn get_type(&self) -> SpineType {
 		match self {
 			SpineValue::I64(_) => SpineType::I64,
+			SpineValue::DataAddr { .. } => SpineType::DataAddr,
 		}
 	}
 }
 
 enum SpineInstr {
 	PushConst(SpineValue),
+	PushString(String),
 	PopI64AndPrintAsChar,
+	PopI64AndPtrAndPrintAsString,
 	AddI64AndI64,
 	Exit,
 }
@@ -352,7 +395,11 @@ impl SpineInstr {
 	fn operand_and_return_types(&self) -> (Vec<SpineType>, Vec<SpineType>) {
 		match self {
 			SpineInstr::PushConst(value) => (vec![], vec![value.get_type()]),
+			SpineInstr::PushString(_) => (vec![], vec![SpineType::DataAddr, SpineType::I64]),
 			SpineInstr::PopI64AndPrintAsChar => (vec![SpineType::I64], vec![]),
+			SpineInstr::PopI64AndPtrAndPrintAsString => {
+				(vec![SpineType::DataAddr, SpineType::I64], vec![])
+			},
 			SpineInstr::AddI64AndI64 => (vec![SpineType::I64, SpineType::I64], vec![SpineType::I64]),
 			SpineInstr::Exit => (vec![], vec![]),
 		}
@@ -385,10 +432,16 @@ fn parse(source: Rc<SourceCode>) -> SpineProgram {
 				Some(Token::CharacterLiteral(TokenCharacterLiteral { span, character })) => {
 					src_order_instrs.push(SpineInstr::PushConst(SpineValue::I64(character as i64)));
 				},
+				Some(Token::StringLiteral(TokenStringLiteral { span, string })) => {
+					src_order_instrs.push(SpineInstr::PushString(string));
+				},
 				Some(Token::ExplicitKeyword(TokenExplicitKeyword { span, keyword })) => {
 					match keyword.unwrap() {
 						ExplicitKeyword::PrintChar => {
 							src_order_instrs.push(SpineInstr::PopI64AndPrintAsChar);
+						},
+						ExplicitKeyword::PrintStr => {
+							src_order_instrs.push(SpineInstr::PopI64AndPtrAndPrintAsString);
 						},
 						ExplicitKeyword::Add => {
 							src_order_instrs.push(SpineInstr::AddI64AndI64);
@@ -452,6 +505,26 @@ fn compile_to_binary(program: SpineProgram) -> Binary {
 								PushReg64 { reg_src: Reg64::Rax },
 							]);
 						},
+						SpineInstr::PushConst(SpineValue::DataAddr { .. }) => {
+							unimplemented!()
+						},
+						SpineInstr::PushString(string) => {
+							let offset_in_data_segment = bin.data_bytes.len() as u64;
+							let string_len_in_bytes = string.len() as i64;
+							bin.data_bytes.extend(string.as_bytes());
+							bin.asm_instrs.extend([
+								MovImmToReg64 {
+									imm_src: Imm::Imm64(Imm64::DataAddr { offset_in_data_segment }),
+									reg_dst: Reg64::Rax,
+								},
+								PushReg64 { reg_src: Reg64::Rax },
+								MovImmToReg64 {
+									imm_src: Imm::whatever_raw(string_len_in_bytes),
+									reg_dst: Reg64::Rax,
+								},
+								PushReg64 { reg_src: Reg64::Rax },
+							]);
+						},
 						SpineInstr::PopI64AndPrintAsChar => {
 							bin.asm_instrs.extend([
 								// Write(message) syscall
@@ -469,6 +542,24 @@ fn compile_to_binary(program: SpineProgram) -> Binary {
 									imm_src: Imm::whatever_raw(1),
 									reg_dst: Reg64::Rdx, // String length
 								},
+								Syscall,
+								// Pop
+								PopToReg64 { reg_dst: Reg64::Rsi },
+							]);
+						},
+						SpineInstr::PopI64AndPtrAndPrintAsString => {
+							bin.asm_instrs.extend([
+								// Write(message) syscall
+								MovImmToReg64 {
+									imm_src: Imm::whatever_raw(1),
+									reg_dst: Reg64::Rax, // Syscall number
+								},
+								MovImmToReg64 {
+									imm_src: Imm::whatever_raw(1),
+									reg_dst: Reg64::Rdi, // File descriptor
+								},
+								PopToReg64 { reg_dst: Reg64::Rdx }, // String length
+								PopToReg64 { reg_dst: Reg64::Rsi }, // String address
 								Syscall,
 								// Pop
 								PopToReg64 { reg_dst: Reg64::Rsi },
