@@ -13,15 +13,15 @@
 		},
 		"keyword": {
 			"match": "\\`\\w+",
-			"name": "keyword"
+			"name": "keyword.spine"
 		},
 		"integer": {
 			"match": "\\d",
-			"name": "constant.numeric"
+			"name": "constant.numeric.spine"
 		},
 		"semicolon": {
 			"match": "\\;",
-			"name": "punctuation.semi"
+			"name": "punctuation.semi.spine"
 		}
 	}
 }
