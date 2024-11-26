@@ -16,7 +16,7 @@ use lang::{compile_to_binary, parse, SourceCode};
 fn main() {
 	let mut source_file_path = None;
 	let mut raw_source = None;
-	let mut output_file_path = "binary".to_string();
+	let mut output_file_path = "b".to_string();
 	let mut verbose = false;
 	let mut help = false;
 
@@ -50,7 +50,7 @@ fn main() {
 		println!("Options:");
 		println!("  -f --source-file   Path to the source file to compile.");
 		println!("  -r --raw-source    Source code to compile.");
-		println!("  -o --output-file   Path to the binary to be produced.");
+		println!("  -o --output-file   Path to the binary to be produced (default is \"b\").");
 		println!("  -v --verbose       (flag) Compiler will print more stuff.");
 		println!("  -h --help          (flag) Print this help message.");
 		return;

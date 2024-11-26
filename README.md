@@ -10,9 +10,11 @@ cargo run -- -f test.spine -o binary & ./binary
 
 Can also provide raw source code in command line:
 ```sh
-cargo run -- -r "\`printchar 97; \`printchar 10; \`exit" -o binary && ./binary
+cargo run -- -r "\`printstr \"haiii :3\\n\"; \`exit" && ./b
 ```
 (woa what an amazing feature!!!¡¡)
+
+(default output binary path is "b" when not provided via `-o`)
 
 ## VSCode extension
 
