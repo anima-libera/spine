@@ -1,0 +1,3 @@
+`printchar `add 90 7;
+`printchar `printchar `printchar 98 99 10;
+`exit;
