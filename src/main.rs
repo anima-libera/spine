@@ -22,42 +22,49 @@ struct SourceCode {
 
 struct SourceCodeReader {
 	source: Rc<SourceCode>,
-	next_index: usize,
-	popped_characters_count: usize,
+	next_char_pos: CharacterPos,
+	previous_char_pos: Option<CharacterPos>,
 }
 
 impl SourceCodeReader {
 	fn new(source: Rc<SourceCode>) -> SourceCodeReader {
-		SourceCodeReader { source, next_index: 0, popped_characters_count: 0 }
+		SourceCodeReader {
+			source,
+			next_char_pos: CharacterPos { index_in_bytes: 0, index_in_chars: 0 },
+			previous_char_pos: None,
+		}
 	}
 
-	fn previous_character_pos(&self) -> Option<usize> {
-		self.popped_characters_count.checked_sub(1)
+	fn previous_character_pos(&self) -> Option<CharacterPos> {
+		self.previous_char_pos
 	}
 
-	fn next_character_pos(&self) -> Option<usize> {
-		(self.next_index < self.source.text.len()).then_some(self.popped_characters_count)
+	fn next_character_pos(&self) -> Option<CharacterPos> {
+		(self.next_char_pos.index_in_bytes < self.source.text.len()).then_some(self.next_char_pos)
 	}
 
-	fn passed_span(&self, pos_start: usize, pos_end: usize) -> SourceCodeSpan {
-		if pos_end < pos_start {
+	fn passed_span(&self, pos_start: CharacterPos, pos_end: CharacterPos) -> SourceCodeSpan {
+		if pos_end.index_in_chars < pos_start.index_in_chars {
 			panic!("Span cannot end before it starts");
 		}
-		if self.next_index <= pos_end {
+		if self.next_char_pos.index_in_chars <= pos_end.index_in_chars {
 			panic!("Span cannot end after last popped/skipped character");
 		}
 		SourceCodeSpan { source: Rc::clone(&self.source), pos_start, pos_end }
 	}
 
 	fn peek_character(&self) -> Option<char> {
-		self.source.text[self.next_index..].chars().next()
+		self.source.text[self.next_char_pos.index_in_bytes..]
+			.chars()
+			.next()
 	}
 
 	fn pop_character(&mut self) -> Option<char> {
 		let character = self.peek_character();
 		if let Some(character) = character {
-			self.next_index += character.len_utf8();
-			self.popped_characters_count += 1;
+			self.previous_char_pos = Some(self.next_char_pos);
+			self.next_char_pos.index_in_bytes += character.len_utf8();
+			self.next_char_pos.index_in_chars += 1;
 		}
 		character
 	}
@@ -77,17 +84,23 @@ impl SourceCodeReader {
 	}
 }
 
+#[derive(Clone, Copy)]
+struct CharacterPos {
+	index_in_bytes: usize,
+	index_in_chars: usize,
+}
+
 struct SourceCodeSpan {
 	source: Rc<SourceCode>,
 	/// Included.
-	pos_start: usize,
+	pos_start: CharacterPos,
 	/// Included.
-	pos_end: usize,
+	pos_end: CharacterPos,
 }
 
 impl SourceCodeSpan {
 	fn as_str(&self) -> &str {
-		&self.source.text[self.pos_start..=self.pos_end]
+		&self.source.text[self.pos_start.index_in_bytes..=self.pos_end.index_in_bytes]
 	}
 }
 
@@ -96,8 +109,13 @@ struct TokenIntegerLiteral {
 	value_i64: Option<i64>,
 }
 
+struct TokenCharacterLiteral {
+	span: SourceCodeSpan,
+	character: char,
+}
+
 enum ExplicitKeyword {
-	/// Pops an i64 and prints the character it represents as a unicode code point.
+	/// Pops an i64 and prints the ASCII character it represents as a unicode code point.
 	PrintChar,
 	/// Pops two i64 values, add them together, and push the result.
 	Add,
@@ -118,6 +136,7 @@ struct TokenComment {
 
 enum Token {
 	IntegerLiteral(TokenIntegerLiteral),
+	CharacterLiteral(TokenCharacterLiteral),
 	ExplicitKeyword(TokenExplicitKeyword),
 	Semicolon(SourceCodeSpan),
 	Comment(TokenComment),
@@ -137,6 +156,77 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 			);
 			let value_i64 = span.as_str().parse().ok();
 			let token = Token::IntegerLiteral(TokenIntegerLiteral { span, value_i64 });
+			Some(token)
+		},
+		Some('\'') => {
+			reader.skip_character();
+			let character = if reader.peek_character() == Some('\\') {
+				reader.skip_character();
+				let hex_digit_to_value = |hex_digit| match hex_digit {
+					'0'..='9' => hex_digit as u32 - '0' as u32,
+					'a'..='f' => hex_digit as u32 - 'a' as u32 + 10,
+					'A'..='F' => hex_digit as u32 - 'A' as u32 + 10,
+					_ => panic!(),
+				};
+				match reader.pop_character().unwrap() {
+					'x' | 'X' => {
+						// `\x1b`, unicode code point (in `0..=255`) with exactly two hex digits.
+						let high = reader.pop_character().unwrap();
+						let low = reader.pop_character().unwrap();
+						let value = hex_digit_to_value(high) * 16 + hex_digit_to_value(low);
+						char::from_u32(value).unwrap()
+					},
+					'u' | 'U' => {
+						// `\u{fffd}`, unicode code point with hex digits.
+						assert_eq!(reader.pop_character(), Some('{'));
+						let mut value = 0;
+						loop {
+							let character = reader.pop_character().unwrap();
+							if character == '}' {
+								break;
+							}
+							value = value * 16 + hex_digit_to_value(character);
+						}
+						char::from_u32(value).unwrap()
+					},
+					'd' | 'D' => {
+						// `\d{65533}`, unicode code point with decimal digits.
+						assert_eq!(reader.pop_character(), Some('{'));
+						let mut value = 0;
+						loop {
+							let character = reader.pop_character().unwrap();
+							if character == '}' {
+								break;
+							}
+							assert!(character.is_ascii_digit());
+							value = value * 10 + hex_digit_to_value(character);
+						}
+						char::from_u32(value).unwrap()
+					},
+					'e' => '\x1b', // Escape
+					'a' => '\x07', // Bell
+					'b' => '\x08', // Backspace
+					'n' => '\n',   // Newline
+					't' => '\t',   // Tab
+					'r' => '\r',   // Carriage return
+					'v' => '\x0b', // Vertical tab
+					'f' => '\x0c', // Page break
+					'?' => '�',    // Replacement character
+					'0' => '\0',   // Null
+					'\\' => '\\',
+					'\'' => '\'',
+					'\"' => '\"',
+					_ => panic!(),
+				}
+			} else {
+				reader.pop_character().unwrap()
+			};
+			assert_eq!(reader.pop_character(), Some('\''));
+			let span = reader.passed_span(
+				pos_first_character.unwrap(),
+				reader.previous_character_pos().unwrap(),
+			);
+			let token = Token::CharacterLiteral(TokenCharacterLiteral { span, character });
 			Some(token)
 		},
 		Some('`') => {
@@ -291,6 +381,9 @@ fn parse(source: Rc<SourceCode>) -> SpineProgram {
 			match tokenizer.pop_token() {
 				Some(Token::IntegerLiteral(TokenIntegerLiteral { span, value_i64 })) => {
 					src_order_instrs.push(SpineInstr::PushConst(SpineValue::I64(value_i64.unwrap())));
+				},
+				Some(Token::CharacterLiteral(TokenCharacterLiteral { span, character })) => {
+					src_order_instrs.push(SpineInstr::PushConst(SpineValue::I64(character as i64)));
 				},
 				Some(Token::ExplicitKeyword(TokenExplicitKeyword { span, keyword })) => {
 					match keyword.unwrap() {

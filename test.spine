@@ -1,3 +1,6 @@
 `printchar `add ---{jeej} 90 --{jaaj} 7; -- uwu owo
 `printchar `printchar `printchar 98 99 10; ---uwu awa
+--`exit;
+
+`printchar`printchar`printchar`printchar '\?''\u{fffd}''\d{65533}''\n'; -- prints ���
 `exit;

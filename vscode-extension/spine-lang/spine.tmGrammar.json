@@ -7,6 +7,7 @@
 		"statement": {
 			"patterns": [
 				{ "include": "#integer" },
+				{ "include": "#character" },
 				{ "include": "#keyword" },
 				{ "include": "#semicolon" },
 				{ "include": "#comment" }
@@ -19,6 +20,24 @@
 		"integer": {
 			"match": "\\d+",
 			"name": "constant.numeric.spine"
+		},
+		"character": {
+			"begin": "\\'",
+			"end": "\\'",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.char.spine" }
+			},
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.char.spine" }
+			},
+			"name": "string.quoted.single.char.spine",
+			"patterns": [
+				{ "include": "#escaped-character" }
+			]
+		},
+		"escaped-character": {
+			"match": "\\\\(\\\\|\\'|\\\"|0|\\?|n|t|r|v|f|b|a|e|(x|X)\\h{2}|(u|U)\\{\\h*\\}|(d|D)\\{\\d*\\})",
+			"name": "constant.character.escape.spine"
 		},
 		"semicolon": {
 			"match": "\\;",
