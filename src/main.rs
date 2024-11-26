@@ -14,24 +14,6 @@ use asm::{AsmInstr, Reg64};
 use elf::{chmod_x, Binary};
 use imm::Imm;
 
-enum SpineType {
-	I64,
-}
-
-enum SpineValue {
-	I64(i64),
-}
-
-enum SpineInstr {
-	PushConst(SpineValue),
-	PopI64AndPrintAsChar,
-	Exit,
-}
-
-struct SpineProgram {
-	instrs: Vec<SpineInstr>,
-}
-
 /// Used as `Rc<Self>`.
 struct SourceCode {
 	text: String,
@@ -129,6 +111,7 @@ struct TokenExplicitKeyword {
 enum Token {
 	IntegerLiteral(TokenIntegerLiteral),
 	ExplicitKeyword(TokenExplicitKeyword),
+	Semicolon(SourceCodeSpan),
 }
 
 /// Consumes and tokenizes the next token.
@@ -161,6 +144,11 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 			};
 			let token = Token::ExplicitKeyword(TokenExplicitKeyword { span, keyword });
 			Some(token)
+		},
+		Some(';') => {
+			reader.skip_character();
+			let span = reader.passed_span(pos_first_character.unwrap(), pos_first_character.unwrap());
+			Some(Token::Semicolon(span))
 		},
 		Some(_) => None,
 		None => None,
@@ -199,23 +187,108 @@ impl Tokenizer {
 	}
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum SpineType {
+	I64,
+}
+
+enum SpineValue {
+	I64(i64),
+}
+
+impl SpineValue {
+	fn get_type(&self) -> SpineType {
+		match self {
+			SpineValue::I64(_) => SpineType::I64,
+		}
+	}
+}
+
+enum SpineInstr {
+	PushConst(SpineValue),
+	PopI64AndPrintAsChar,
+	Exit,
+}
+
+impl SpineInstr {
+	/// Order:
+	/// - If operand types are `[A, B]` then it means `B` will be popped before `A`.
+	/// - If return types are `[A, B]` then it means `A` will be pushed before `B`.
+	fn operand_and_return_types(&self) -> (Vec<SpineType>, Vec<SpineType>) {
+		match self {
+			SpineInstr::PushConst(value) => (vec![], vec![value.get_type()]),
+			SpineInstr::PopI64AndPrintAsChar => (vec![SpineType::I64], vec![]),
+			SpineInstr::Exit => (vec![], vec![]),
+		}
+	}
+}
+
+enum SpineStatement {
+	Code {
+		/// In the order that they are executed, so the reverse of the order in the source code.
+		instrs: Vec<SpineInstr>,
+	},
+}
+
+struct SpineProgram {
+	statements: Vec<SpineStatement>,
+}
+
 fn parse(source: Rc<SourceCode>) -> SpineProgram {
 	let reader = SourceCodeReader::new(source);
 	let mut tokenizer = Tokenizer::new(reader);
 
-	let mut instrs = vec![];
+	let mut statements = vec![];
 	while tokenizer.peek_token().is_some() {
-		match tokenizer.pop_token().unwrap() {
-			Token::IntegerLiteral(TokenIntegerLiteral { span, value_i64 }) => {
-				instrs.push(SpineInstr::PushConst(SpineValue::I64(value_i64.unwrap())));
-			},
-			Token::ExplicitKeyword(TokenExplicitKeyword { span, keyword }) => match keyword.unwrap() {
-				ExplicitKeyword::PrintChar => instrs.push(SpineInstr::PopI64AndPrintAsChar),
-				ExplicitKeyword::Exit => instrs.push(SpineInstr::Exit),
-			},
+		let mut src_order_instrs = vec![];
+		loop {
+			match tokenizer.pop_token() {
+				Some(Token::IntegerLiteral(TokenIntegerLiteral { span, value_i64 })) => {
+					src_order_instrs.push(SpineInstr::PushConst(SpineValue::I64(value_i64.unwrap())));
+				},
+				Some(Token::ExplicitKeyword(TokenExplicitKeyword { span, keyword })) => {
+					match keyword.unwrap() {
+						ExplicitKeyword::PrintChar => {
+							src_order_instrs.push(SpineInstr::PopI64AndPrintAsChar)
+						},
+						ExplicitKeyword::Exit => src_order_instrs.push(SpineInstr::Exit),
+					}
+				},
+				Some(Token::Semicolon(span)) => break,
+				None => break,
+			}
 		}
+
+		// Typecheking.
+		let mut excpected_type_stack = vec![];
+		for instr in src_order_instrs.iter() {
+			let (mut operand_types, mut return_types) = instr.operand_and_return_types();
+			while let Some(top_return_type) = return_types.pop() {
+				if let Some(top_excpected_type) = excpected_type_stack.pop() {
+					assert_eq!(top_excpected_type, top_return_type, "type mismatch");
+				} else {
+					panic!(
+						"a value of type {:?} is pushed but there is no instruction to pop it",
+						top_return_type
+					);
+				}
+			}
+			excpected_type_stack.append(&mut operand_types);
+		}
+		assert!(
+			excpected_type_stack.is_empty(),
+			"values of types {:?} are expected but there is no instruction to push them",
+			excpected_type_stack,
+		);
+
+		let instrs = {
+			src_order_instrs.reverse();
+			src_order_instrs
+		};
+		statements.push(SpineStatement::Code { instrs });
 	}
-	SpineProgram { instrs }
+
+	SpineProgram { statements }
 }
 
 fn compile_to_binary(program: SpineProgram) -> Binary {
@@ -223,49 +296,55 @@ fn compile_to_binary(program: SpineProgram) -> Binary {
 
 	use AsmInstr::*;
 
-	for instr in program.instrs.iter() {
-		match instr {
-			SpineInstr::PushConst(SpineValue::I64(value)) => {
-				bin.asm_instrs.extend([
-					MovImmToReg64 { imm_src: Imm::whatever_raw(*value), reg_dst: Reg64::Rax },
-					PushReg64 { reg_src: Reg64::Rax },
-				]);
-			},
-			SpineInstr::PopI64AndPrintAsChar => {
-				bin.asm_instrs.extend([
-					// Write(message) syscall
-					MovImmToReg64 {
-						imm_src: Imm::whatever_raw(1),
-						reg_dst: Reg64::Rax, // Syscall number
-					},
-					MovImmToReg64 {
-						imm_src: Imm::whatever_raw(1),
-						reg_dst: Reg64::Rdi, // File descriptor
-					},
-					PushReg64 { reg_src: Reg64::Rsp },
-					PopToReg64 { reg_dst: Reg64::Rsi }, // String address
-					MovImmToReg64 {
-						imm_src: Imm::whatever_raw(1),
-						reg_dst: Reg64::Rdx, // String length
-					},
-					Syscall,
-					// Pop
-					PopToReg64 { reg_dst: Reg64::Rsi },
-				]);
-			},
-			SpineInstr::Exit => {
-				bin.asm_instrs.extend([
-					// Exit(0) syscall
-					MovImmToReg64 {
-						imm_src: Imm::whatever_raw(60),
-						reg_dst: Reg64::Rax, // Syscall number
-					},
-					MovImmToReg64 {
-						imm_src: Imm::whatever_raw(0),
-						reg_dst: Reg64::Rdi, // Exit code, 0 means all good
-					},
-					Syscall,
-				]);
+	for statement in program.statements.iter() {
+		match statement {
+			SpineStatement::Code { instrs } => {
+				for instr in instrs.iter() {
+					match instr {
+						SpineInstr::PushConst(SpineValue::I64(value)) => {
+							bin.asm_instrs.extend([
+								MovImmToReg64 { imm_src: Imm::whatever_raw(*value), reg_dst: Reg64::Rax },
+								PushReg64 { reg_src: Reg64::Rax },
+							]);
+						},
+						SpineInstr::PopI64AndPrintAsChar => {
+							bin.asm_instrs.extend([
+								// Write(message) syscall
+								MovImmToReg64 {
+									imm_src: Imm::whatever_raw(1),
+									reg_dst: Reg64::Rax, // Syscall number
+								},
+								MovImmToReg64 {
+									imm_src: Imm::whatever_raw(1),
+									reg_dst: Reg64::Rdi, // File descriptor
+								},
+								PushReg64 { reg_src: Reg64::Rsp },
+								PopToReg64 { reg_dst: Reg64::Rsi }, // String address
+								MovImmToReg64 {
+									imm_src: Imm::whatever_raw(1),
+									reg_dst: Reg64::Rdx, // String length
+								},
+								Syscall,
+								// Pop
+								PopToReg64 { reg_dst: Reg64::Rsi },
+							]);
+						},
+						SpineInstr::Exit => {
+							bin.asm_instrs.extend([
+								// Exit(0) syscall
+								MovImmToReg64 {
+									imm_src: Imm::whatever_raw(60),
+									reg_dst: Reg64::Rax, // Syscall number
+								},
+								MovImmToReg64 {
+									imm_src: Imm::whatever_raw(0),
+									reg_dst: Reg64::Rdi, // Exit code, 0 means all good
+								},
+								Syscall,
+							]);
+						},
+					}
+				}
 			},
 		}
 	}
@@ -274,7 +353,7 @@ fn compile_to_binary(program: SpineProgram) -> Binary {
 }
 
 fn main() {
-	let source_code_text = r"10 97 `printchar `printchar `exit";
+	let source_code_text = r"`printchar 97; `printchar `printchar `printchar 98 99 10; `exit";
 	let source_code =
 		Rc::new(SourceCode { text: source_code_text.to_string(), name: "test uwu".to_string() });
 	let program = parse(source_code);
