@@ -99,6 +99,8 @@ struct TokenIntegerLiteral {
 enum ExplicitKeyword {
 	/// Pops an i64 and prints the character it represents as a unicode code point.
 	PrintChar,
+	/// Pops two i64 values, add them together, and push the result.
+	Add,
 	/// Terminate the process execution by calling the exit syscall, with 0 as the exit code.
 	Exit,
 }
@@ -139,6 +141,7 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 			);
 			let keyword = match span.as_str() {
 				"`printchar" => Some(ExplicitKeyword::PrintChar),
+				"`add" => Some(ExplicitKeyword::Add),
 				"`exit" => Some(ExplicitKeyword::Exit),
 				_ => None,
 			};
@@ -207,6 +210,7 @@ impl SpineValue {
 enum SpineInstr {
 	PushConst(SpineValue),
 	PopI64AndPrintAsChar,
+	AddI64AndI64,
 	Exit,
 }
 
@@ -218,6 +222,7 @@ impl SpineInstr {
 		match self {
 			SpineInstr::PushConst(value) => (vec![], vec![value.get_type()]),
 			SpineInstr::PopI64AndPrintAsChar => (vec![SpineType::I64], vec![]),
+			SpineInstr::AddI64AndI64 => (vec![SpineType::I64, SpineType::I64], vec![SpineType::I64]),
 			SpineInstr::Exit => (vec![], vec![]),
 		}
 	}
@@ -249,9 +254,14 @@ fn parse(source: Rc<SourceCode>) -> SpineProgram {
 				Some(Token::ExplicitKeyword(TokenExplicitKeyword { span, keyword })) => {
 					match keyword.unwrap() {
 						ExplicitKeyword::PrintChar => {
-							src_order_instrs.push(SpineInstr::PopI64AndPrintAsChar)
+							src_order_instrs.push(SpineInstr::PopI64AndPrintAsChar);
 						},
-						ExplicitKeyword::Exit => src_order_instrs.push(SpineInstr::Exit),
+						ExplicitKeyword::Add => {
+							src_order_instrs.push(SpineInstr::AddI64AndI64);
+						},
+						ExplicitKeyword::Exit => {
+							src_order_instrs.push(SpineInstr::Exit);
+						},
 					}
 				},
 				Some(Token::Semicolon(span)) => break,
@@ -329,6 +339,14 @@ fn compile_to_binary(program: SpineProgram) -> Binary {
 								PopToReg64 { reg_dst: Reg64::Rsi },
 							]);
 						},
+						SpineInstr::AddI64AndI64 => {
+							bin.asm_instrs.extend([
+								PopToReg64 { reg_dst: Reg64::Rax },
+								PopToReg64 { reg_dst: Reg64::Rbx },
+								AddReg64ToReg64 { reg_src: Reg64::Rbx, reg_dst: Reg64::Rax },
+								PushReg64 { reg_src: Reg64::Rax },
+							]);
+						},
 						SpineInstr::Exit => {
 							bin.asm_instrs.extend([
 								// Exit(0) syscall
@@ -353,7 +371,10 @@ fn compile_to_binary(program: SpineProgram) -> Binary {
 }
 
 fn main() {
-	let source_code_text = r"`printchar 97; `printchar `printchar `printchar 98 99 10; `exit";
+	let source_code_text = r"
+		`printchar `add 90 7;
+		`printchar `printchar `printchar 98 99 10;
+		`exit";
 	let source_code =
 		Rc::new(SourceCode { text: source_code_text.to_string(), name: "test uwu".to_string() });
 	let program = parse(source_code);
