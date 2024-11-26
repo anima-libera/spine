@@ -110,10 +110,17 @@ struct TokenExplicitKeyword {
 	keyword: Option<ExplicitKeyword>,
 }
 
+struct TokenComment {
+	span: SourceCodeSpan,
+	is_block: bool,
+	is_doc: bool,
+}
+
 enum Token {
 	IntegerLiteral(TokenIntegerLiteral),
 	ExplicitKeyword(TokenExplicitKeyword),
 	Semicolon(SourceCodeSpan),
+	Comment(TokenComment),
 }
 
 /// Consumes and tokenizes the next token.
@@ -153,8 +160,42 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 			let span = reader.passed_span(pos_first_character.unwrap(), pos_first_character.unwrap());
 			Some(Token::Semicolon(span))
 		},
+		Some('-') => {
+			reader.skip_character();
+			assert_eq!(reader.peek_character(), Some('-'));
+			reader.skip_character();
+			let is_doc = reader.peek_character() == Some('-');
+			if is_doc {
+				reader.skip_character();
+			}
+			let is_block = reader.peek_character() == Some('{');
+			if is_block {
+				reader.skip_character();
+				reader.skip_characters_while(|c| c != '}');
+				reader.skip_character();
+			} else {
+				reader.skip_characters_while(|c| c != '\n');
+				reader.skip_character();
+			}
+			let span = reader.passed_span(
+				pos_first_character.unwrap(),
+				reader.previous_character_pos().unwrap(),
+			);
+			let token = Token::Comment(TokenComment { span, is_block, is_doc });
+			Some(token)
+		},
 		Some(_) => None,
 		None => None,
+	}
+}
+
+fn pop_token_from_reader_ignoring_comments(reader: &mut SourceCodeReader) -> Option<Token> {
+	loop {
+		match pop_token_from_reader(reader) {
+			Some(Token::Comment(_)) => continue,
+			not_a_comment => break not_a_comment,
+		}
+		unreachable!();
 	}
 }
 
@@ -173,13 +214,13 @@ impl Tokenizer {
 		if let Some(token) = self.queue.pop_front() {
 			Some(token)
 		} else {
-			pop_token_from_reader(&mut self.reader)
+			pop_token_from_reader_ignoring_comments(&mut self.reader)
 		}
 	}
 
 	fn peek_ith_token(&mut self, index: usize) -> Option<&Token> {
 		while self.queue.len() <= index {
-			let token = pop_token_from_reader(&mut self.reader)?;
+			let token = pop_token_from_reader_ignoring_comments(&mut self.reader)?;
 			self.queue.push_back(token);
 		}
 		Some(&self.queue[index])
@@ -264,6 +305,7 @@ fn parse(source: Rc<SourceCode>) -> SpineProgram {
 						},
 					}
 				},
+				Some(Token::Comment(_)) => {},
 				Some(Token::Semicolon(span)) => break,
 				None => break,
 			}

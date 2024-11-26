@@ -8,7 +8,8 @@
 			"patterns": [
 				{ "include": "#integer" },
 				{ "include": "#keyword" },
-				{ "include": "#semicolon" }
+				{ "include": "#semicolon" },
+				{ "include": "#comment" }
 			]
 		},
 		"keyword": {
@@ -16,12 +17,64 @@
 			"name": "keyword.spine"
 		},
 		"integer": {
-			"match": "\\d",
+			"match": "\\d+",
 			"name": "constant.numeric.spine"
 		},
 		"semicolon": {
 			"match": "\\;",
 			"name": "punctuation.semi.spine"
+		},
+		"comment": {
+			"patterns": [
+				{ "include": "#block-comment-doc" },
+				{ "include": "#block-comment" },
+				{ "include": "#line-comment-doc" },
+				{ "include": "#line-comment" }
+			]
+		},
+		"block-comment-doc": {
+			"begin": "---\\{",
+			"end": "\\}",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.comment.block.documentation.spine" }
+			},
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.comment.block.documentation.spine" }
+			},
+			"name": "comment.block.documentation.spine"
+		},
+		"block-comment": {
+			"begin": "--\\{",
+			"end": "\\}",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.comment.block.spine" }
+			},
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.comment.block.spine" }
+			},
+			"name": "comment.block.spine"
+		},
+		"line-comment-doc": {
+			"begin": "---",
+			"end": "$",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.comment.line.documentation.spine" }
+			},
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.comment.line.documentation.spine" }
+			},
+			"name": "comment.line.documentation.spine"
+		},
+		"line-comment": {
+			"begin": "--",
+			"end": "$",
+			"beginCaptures": {
+				"0": { "name": "punctuation.definition.comment.line.spine" }
+			},
+			"endCaptures": {
+				"0": { "name": "punctuation.definition.comment.line.spine" }
+			},
+			"name": "comment.line.spine"
 		}
 	}
 }
