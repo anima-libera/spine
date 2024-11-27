@@ -1,17 +1,81 @@
-import * as vscode from 'vscode';
+import * as path from "path";
+import { workspace, ExtensionContext } from "vscode";
+import * as vscode from "vscode";
 
-// This method is called when your extension is activated
-export function activate(context: vscode.ExtensionContext) {
-	console.log('uwu');
+import {
+	Executable,
+	LanguageClient,
+	LanguageClientOptions,
+	ServerOptions,
+	TransportKind,
+} from "vscode-languageclient/node";
 
-	// The command has been defined in the package.json file
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('spine-lang.fard', () => {
-		vscode.window.showInformationMessage('Jaaj');
-		vscode.window.showWarningMessage('Jaaj !!!!!!!!!!');
+let client: LanguageClient;
+
+export function activate(context: ExtensionContext) {
+	console.log("uwu");
+
+	const fardCommand = vscode.commands.registerCommand("spine-lang.fard", () => {
+		vscode.window.showInformationMessage("Jaaj");
+		vscode.window.showWarningMessage("Jaaj !!!!!!!!!!");
+	});
+	context.subscriptions.push(fardCommand);
+
+	const run: Executable = {
+		command: "spine",
+		args: ["--lsp"],
+		options: {
+			env: {
+				...process.env,
+			},
+		},
+	};
+
+	const serverOptions: ServerOptions = {
+		run,
+		debug: run,
+	};
+
+	const clientOptions: LanguageClientOptions = {
+		documentSelector: [{ scheme: "file", language: "spine" }],
+		outputChannel: vscode.window.createOutputChannel("Spine LSP"),
+	};
+
+	client = new LanguageClient(
+		"spine-language-server",
+		"Spine Language Servrr",
+		serverOptions,
+		clientOptions
+	);
+
+	const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1);
+	statusBar.text = "Spine !!!!!";
+	statusBar.tooltip = new vscode.MarkdownString(
+		// We do a little testing.
+		"# nyo way!!¡\n" +
+		"[way?](command:spine-lang.fard \"Does something truly amazing\")\n" +
+		"\n---\n\n" +
+		"- UwU\n" +
+		"- OwO $(terminal) $(terminal) $(terminal) $(terminal) $(terminal) $(loading~spin)"
+	);
+	statusBar.tooltip.isTrusted = true;
+	statusBar.tooltip.supportThemeIcons = true;
+	statusBar.command = "spine-lang.fard";
+	//sstatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+	statusBar.show();
+
+	client.onReady().then(() => {
+		client.onNotification("window/logMessage", (awa: string) => {
+			console.log(awa);
+		});
 	});
 
-	context.subscriptions.push(disposable);
+	client.start();
 }
 
-export function deactivate() {}
+export function deactivate(): Thenable<void> | undefined {
+	if (!client) {
+		return undefined;
+	}
+	return client.stop();
+}

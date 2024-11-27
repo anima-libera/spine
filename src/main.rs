@@ -4,6 +4,7 @@ mod asm;
 mod elf;
 mod imm;
 mod lang;
+mod lsp;
 
 #[cfg(test)]
 mod asm_test;
@@ -12,6 +13,7 @@ use std::rc::Rc;
 
 use elf::chmod_x;
 use lang::{compile_to_binary, parse, SourceCode};
+use lsp::run_lsp;
 
 fn main() {
 	let mut source_file_path = None;
@@ -19,6 +21,7 @@ fn main() {
 	let mut output_file_path = "b".to_string();
 	let mut verbose = false;
 	let mut help = false;
+	let mut lsp = false;
 
 	let args: Vec<_> = std::env::args().collect();
 	if let Some(source_file_option_index) = args
@@ -44,6 +47,14 @@ fn main() {
 	}
 	if args.iter().any(|arg| arg == "-h" || arg == "--help") {
 		help = true;
+	}
+	if args.iter().any(|arg| arg == "--lsp") {
+		lsp = true;
+	}
+
+	if lsp {
+		run_lsp();
+		return;
 	}
 
 	if help {
@@ -73,8 +84,12 @@ fn main() {
 		}
 		Rc::new(SourceCode { text: raw_source.clone(), name: "<raw source>".to_string() })
 	} else {
-		panic!("No source code provided")
+		println!("No source code provided, nothing to do.");
+		println!("Run with `--help` to see the command line interface usage.");
+		return;
 	};
+
+	// The good stuff starts here ^^
 
 	if verbose {
 		println!("Compiling to intermediate representation");
