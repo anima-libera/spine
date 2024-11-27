@@ -19,7 +19,7 @@
 			"name": "keyword.spine"
 		},
 		"integer": {
-			"match": "\\d+",
+			"match": "(0(x|X)\\h+|\\d+)",
 			"name": "constant.numeric.spine"
 		},
 		"character": {

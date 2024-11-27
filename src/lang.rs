@@ -211,12 +211,31 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 	let pos_first_character = reader.next_character_pos();
 	match first_character {
 		Some('0'..='9') => {
-			reader.skip_characters_while(|c| c.is_ascii_digit());
+			let is_hexadecimal = if reader.peek_character() == Some('0') {
+				reader.skip_character();
+				if reader.peek_character() == Some('x') {
+					reader.skip_character();
+					true
+				} else {
+					false
+				}
+			} else {
+				false
+			};
+			if is_hexadecimal {
+				reader.skip_characters_while(|c| c.is_ascii_hexdigit());
+			} else {
+				reader.skip_characters_while(|c| c.is_ascii_digit());
+			}
 			let span = reader.passed_span(
 				pos_first_character.unwrap(),
 				reader.previous_character_pos().unwrap(),
 			);
-			let value_i64 = span.as_str().parse().ok();
+			let value_i64 = i64::from_str_radix(
+				span.as_str().trim_start_matches("0x"),
+				if is_hexadecimal { 16 } else { 10 },
+			)
+			.ok();
 			let token = Token::IntegerLiteral(TokenIntegerLiteral { span, value_i64 });
 			Some(token)
 		},

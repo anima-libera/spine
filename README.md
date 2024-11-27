@@ -95,7 +95,7 @@ Some of the instructions syntax are keywords that begin with the character `` ` 
 - `` `printchar `` (character --> ) prints the character to stdout.
 - `` `printstr `` (pointer n --> ) prints n characters of the string pointed to by the pointer. If the string is shorter than n then undefined behavior occurs (the stuff after gets printed too, hopefully it is valid utf-8 >w< and hopefully it is in allocated virtual memory pages marked as readable).
 - `` `add `` (n m --> r) pops and adds n and m then pushes the result.
-- `41` ( --> 41) pushes 41. It works for other unsigned numbers too.
+- `41` ( --> 41) pushes 41. It works for other unsigned numbers too. Hexadecimal literals have to start with `0x`, like `0xa`.
 - `'a'` ( --> a) pushes the character `a`. It works for other characters too. See the [character escape syntax](#character-escape).
 - `"awawa"` ( --> pointer len) pushes a pointer to the begining of static data that is the utf-8 encoding of `awawa`, and then pushes the length (of the utf-8 encoding, in bytes) of that string. It works for other strings too. See the [character escape syntax](#character-escape). Note how it works nicely with `` `printstr ``.
 

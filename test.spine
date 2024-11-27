@@ -6,4 +6,7 @@
 --`exit;
 
 `printstr "Hello, World!\n";
+--`exit;
+
+`printchar `printchar 0x61 0xa;
 `exit;
