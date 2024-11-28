@@ -72,7 +72,8 @@ fn main() {
 		println!();
 		#[cfg(not(feature = "lsp"))]
 		{
-			println!("This build does not include the language server feature.");
+			println!("This build does not include the language server feature");
+			println!("and thus does not support the --lsp option.");
 			println!();
 		}
 		println!("Options:");
@@ -82,6 +83,8 @@ fn main() {
 		println!("  -v --verbose       (flag) Compiler will print more stuff.");
 		println!("     --license       (flag) Compiler will print licensing information.");
 		println!("  -h --help          (flag) Print this help message.");
+		#[cfg(feature = "lsp")]
+		println!("     --lsp           (flag) Be a language server, communicate via LSP.");
 		return;
 	}
 
