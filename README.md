@@ -4,6 +4,8 @@ Compiled programming language in the making.
 It compiles directly to **ELF x86_64**
 (linux binary executable that only works on 64-bit Intel CPUs).
 
+The generated machine code is of questionable quality, but it works!
+
 ## Installing
 
 This is a Rust project, so you need Rust and `cargo`, which can be installed from [here](https://www.rust-lang.org/tools/install).
@@ -119,3 +121,20 @@ Some of the instructions syntax are keywords that begin with the character `` ` 
 - `\d{65533}` character of provided Unicode code point written in *decimal* (of arbitrary length) (here `65533`), the `d` can be uppercase
 
 The hexadecimal digits can be uppercase.
+
+### List of features
+
+- Compiled to machine language (not to llvm-ir, not to textual assembly, not to some other compiled language, but to actual binary like our ancestors used to write (no they didn't xd this is mostly for fun, and to get the achievement)). The machine code generation does not use dependencies (that explains why it is bad and unoptimized).
+- VSCode extension (with language server!).
+- Numbers and strings. Strings can be printed (don't ask about the numbers please).
+
+## License
+
+Copyright © 2024 Jeanne DEMOUSSEL.
+
+This project is licensed under either of
+
+- [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0) ([`LICENSE-APACHE`](LICENSE-APACHE))
+- [MIT license](https://opensource.org/licenses/MIT) ([`LICENSE-MIT`](LICENSE-MIT))
+
+at your option.

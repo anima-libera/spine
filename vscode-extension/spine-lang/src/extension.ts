@@ -38,12 +38,12 @@ export function activate(context: ExtensionContext) {
 
 	const clientOptions: LanguageClientOptions = {
 		documentSelector: [{ scheme: "file", language: "spine" }],
-		outputChannel: vscode.window.createOutputChannel("Spine LSP"),
+		outputChannel: vscode.window.createOutputChannel("Spine language server"),
 	};
 
 	client = new LanguageClient(
 		"spine-language-server",
-		"Spine Language Servrr",
+		"Spine Language Server",
 		serverOptions,
 		clientOptions
 	);

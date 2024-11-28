@@ -21,6 +21,7 @@ fn main() {
 	let mut output_file_path = "b".to_string();
 	let mut verbose = false;
 	let mut help = false;
+	let mut license = false;
 	let mut lsp = false;
 
 	let args: Vec<_> = std::env::args().collect();
@@ -48,6 +49,9 @@ fn main() {
 	if args.iter().any(|arg| arg == "-h" || arg == "--help") {
 		help = true;
 	}
+	if args.iter().any(|arg| arg == "--license") {
+		license = true;
+	}
 	if args.iter().any(|arg| arg == "--lsp") {
 		lsp = true;
 	}
@@ -63,7 +67,25 @@ fn main() {
 		println!("  -r --raw-source    Source code to compile.");
 		println!("  -o --output-file   Path to the binary to be produced (default is \"b\").");
 		println!("  -v --verbose       (flag) Compiler will print more stuff.");
+		println!("     --license       (flag) Compiler will print licensing information.");
 		println!("  -h --help          (flag) Print this help message.");
+		return;
+	}
+
+	if license {
+		println!("Copyright (C) 2024 Jeanne DEMOUSSEL");
+		print!("The Spine compiler and its VSCode extension ");
+		println!("(both in source code and packaged form)");
+		println!("are licensed under either of");
+		println!(
+			"- the Apache License, Version 2.0\
+			\n  see https://www.apache.org/licenses/LICENSE-2.0"
+		);
+		println!(
+			"- the MIT license\
+			\n  see https://opensource.org/licenses/MIT"
+		);
+		println!("at your option.");
 		return;
 	}
 
