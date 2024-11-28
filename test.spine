@@ -8,5 +8,9 @@
 `printstr "Hello, World!\n";
 --`exit;
 
-`printchar `printchar 0x61 0xa;
+`printchar `printchar 97 10;             -- decimal
+`printchar `printchar 0x61 0xa;          -- hexadecimal
+`printchar `printchar 0b01100001 0b1010; -- binary
+`printchar `printchar 0r{8}141 0r{8}12;  -- arbitrary radix (here 8, so octal)
+
 `exit;

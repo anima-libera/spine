@@ -97,7 +97,7 @@ impl SourceCodeSpan {
 
 struct TokenIntegerLiteral {
 	span: SourceCodeSpan,
-	value_i64: Option<i64>,
+	value_i64: i64,
 }
 
 struct TokenCharacterLiteral {
@@ -211,31 +211,50 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 	let pos_first_character = reader.next_character_pos();
 	match first_character {
 		Some('0'..='9') => {
-			let is_hexadecimal = if reader.peek_character() == Some('0') {
-				reader.skip_character();
-				if reader.peek_character() == Some('x') {
+			let (radix, pos_first_character_after_radix_prefix) =
+				if reader.peek_character() == Some('0') {
 					reader.skip_character();
-					true
+					let maybe_radix_character = reader.peek_character();
+					if maybe_radix_character.is_none_or(|c| !c.is_ascii_alphanumeric()) {
+						// Not a radix prefix.
+						(10, None)
+					} else {
+						reader.skip_character();
+						match maybe_radix_character.unwrap() {
+							'x' | 'X' => (16, Some(reader.next_character_pos().unwrap())),
+							'b' | 'B' => (2, Some(reader.next_character_pos().unwrap())),
+							'r' | 'R' => {
+								assert_eq!(reader.pop_character(), Some('{'));
+								let pos_radix_number_start = reader.next_character_pos().unwrap();
+								reader.skip_characters_while(|c| c.is_ascii_digit());
+								let pos_radix_number_end = reader.previous_character_pos().unwrap();
+								assert_eq!(reader.pop_character(), Some('}'));
+								let pos_first_character_after_radix_prefix =
+									reader.next_character_pos().unwrap();
+								let radix_number_span =
+									reader.passed_span(pos_radix_number_start, pos_radix_number_end);
+								let radix_number = radix_number_span.as_str().parse().unwrap();
+								(radix_number, Some(pos_first_character_after_radix_prefix))
+							},
+							unknown => panic!("unknown radix prefix char {unknown}"),
+						}
+					}
 				} else {
-					false
-				}
-			} else {
-				false
-			};
-			if is_hexadecimal {
-				reader.skip_characters_while(|c| c.is_ascii_hexdigit());
-			} else {
-				reader.skip_characters_while(|c| c.is_ascii_digit());
+					(10, None)
+				};
+			if 16 < radix {
+				unimplemented!(); // yet
 			}
+			reader.skip_characters_while(|c| c.is_ascii_hexdigit());
+			let span_without_radix_prefix = reader.passed_span(
+				pos_first_character_after_radix_prefix.unwrap_or(pos_first_character.unwrap()),
+				reader.previous_character_pos().unwrap(),
+			);
+			let value_i64 = i64::from_str_radix(span_without_radix_prefix.as_str(), radix).unwrap();
 			let span = reader.passed_span(
 				pos_first_character.unwrap(),
 				reader.previous_character_pos().unwrap(),
 			);
-			let value_i64 = i64::from_str_radix(
-				span.as_str().trim_start_matches("0x"),
-				if is_hexadecimal { 16 } else { 10 },
-			)
-			.ok();
 			let token = Token::IntegerLiteral(TokenIntegerLiteral { span, value_i64 });
 			Some(token)
 		},
@@ -437,7 +456,7 @@ pub(crate) fn parse(source: Rc<SourceCode>) -> SpineProgram {
 		loop {
 			match tokenizer.pop_token() {
 				Some(Token::IntegerLiteral(TokenIntegerLiteral { span, value_i64 })) => {
-					src_order_instrs.push(SpineInstr::PushConst(SpineValue::I64(value_i64.unwrap())));
+					src_order_instrs.push(SpineInstr::PushConst(SpineValue::I64(value_i64)));
 				},
 				Some(Token::CharacterLiteral(TokenCharacterLiteral { span, character })) => {
 					src_order_instrs.push(SpineInstr::PushConst(SpineValue::I64(character as i64)));
