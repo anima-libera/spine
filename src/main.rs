@@ -4,6 +4,8 @@ mod asm;
 mod elf;
 mod imm;
 mod lang;
+
+#[cfg(feature = "lsp")]
 mod lsp;
 
 #[cfg(test)]
@@ -13,6 +15,7 @@ use std::rc::Rc;
 
 use elf::chmod_x;
 use lang::{compile_to_binary, parse, SourceCode};
+#[cfg(feature = "lsp")]
 use lsp::run_lsp;
 
 fn main() {
@@ -22,6 +25,7 @@ fn main() {
 	let mut verbose = false;
 	let mut help = false;
 	let mut license = false;
+	#[cfg(feature = "lsp")]
 	let mut lsp = false;
 
 	let args: Vec<_> = std::env::args().collect();
@@ -52,16 +56,25 @@ fn main() {
 	if args.iter().any(|arg| arg == "--license") {
 		license = true;
 	}
+	#[cfg(feature = "lsp")]
 	if args.iter().any(|arg| arg == "--lsp") {
 		lsp = true;
 	}
 
+	#[cfg(feature = "lsp")]
 	if lsp {
 		run_lsp();
 		return;
 	}
 
 	if help {
+		println!("Spine compiler for the Spine programming language");
+		println!();
+		#[cfg(not(feature = "lsp"))]
+		{
+			println!("This build does not include the language server feature.");
+			println!();
+		}
 		println!("Options:");
 		println!("  -f --source-file   Path to the source file to compile.");
 		println!("  -r --raw-source    Source code to compile.");
@@ -74,6 +87,7 @@ fn main() {
 
 	if license {
 		println!("Copyright (C) 2024 Jeanne DEMOUSSEL");
+		println!("https://github.com/anima-libera/spine");
 		print!("The Spine compiler and its VSCode extension ");
 		println!("(both in source code and packaged form)");
 		println!("are licensed under either of");

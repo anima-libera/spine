@@ -3,9 +3,11 @@ name = "spine"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["lsp"]
+lsp = ["dep:serde_json", "dep:tokio", "dep:tower-lsp"]
 
 [dependencies]
-serde_json = "1.0.133"
-tokio = { version = "1.41.1", features = ["full"] }
-tower-lsp = "0.20.0"
+serde_json = { version = "1.0.133", optional = true }
+tokio = { version = "1.41.1", features = ["full"], optional = true }
+tower-lsp = { version = "0.20.0", optional = true }

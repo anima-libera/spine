@@ -53,6 +53,14 @@ code --install-extension vscode-extension/spine-lang/spine-lang-0.0.1.vsix
 
 The VSCode extension uses a language server (fancy!) which is in the Spine compiler. The VSCode extension runs the language server by running a shell command with the name `spine`, which only works if Spine is installed "globally", see [how to install](#installing).
 
+## Not building the language server
+
+The language server part of the Spine compiler binary is optional (and enabled by default), opting out of it produces a Spine compiler that has all the features *except* being able to be a language server for the VSCode extension.
+
+The language server part of the code is gated behind the cargo feature `lsp` which is enabled by default. To build the thing without that feature, simply use the `--no-default-features` cargo option (see [here](https://doc.rust-lang.org/cargo/reference/features.html#the-default-feature) for more about this cargo option and cargo features).
+
+Building without the language server part makes the compiler binary significantly smaller, and improves compile time by quite a lot (both the first build and the incremental builds), it can be a good idea to build with `--no-default-features` when iterating over the code and building with high frequency or when a small build is desirable.
+
 ## Spine programming language tour
 
 ```
