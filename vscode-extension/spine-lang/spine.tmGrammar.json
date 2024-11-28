@@ -19,8 +19,37 @@
 			"name": "keyword.spine"
 		},
 		"integer": {
-			"match": "(0(b|B)[01]+|0(x|X)\\h+|0(r|R)\\{\\d+\\}\\h+|\\d+)",
-			"name": "constant.numeric.spine"
+			"patterns": [
+				{ "include": "#hexadecimal" },
+				{ "include": "#binary" },
+				{ "include": "#arbitrary-radix" },
+				{ "include": "#decimal" }
+			]
+		},
+		"decimal": {
+			"match": "\\d+",
+			"name": "constant.numeric.decimal.spine"
+		},
+		"hexadecimal": {
+			"match": "(0(?:x|X))(\\h+)",
+			"captures": {
+				"1": { "name": "storage.modifier.radix-prefix.hexadecimal.spine" },
+				"2": { "name": "constant.numeric.hexadecimal.spine" }
+			}
+		},
+		"binary": {
+			"match": "(0(?:b|B))([01]+)",
+			"captures": {
+				"1": { "name": "storage.modifier.radix-prefix.binary.spine" },
+				"2": { "name": "constant.numeric.binary.spine" }
+			}
+		},
+		"arbitrary-radix": {
+			"match": "(0(?:r|R)\\{\\d+\\})(\\h+)",
+			"captures": {
+				"1": { "name": "storage.modifier.radix-prefix.arbitrary.spine" },
+				"2": { "name": "constant.numeric.arbitrary-radix.spine" }
+			}
 		},
 		"character": {
 			"begin": "\\'",
