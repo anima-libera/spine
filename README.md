@@ -2,7 +2,7 @@
 
 Compiled programming language in the making.
 It compiles directly to **ELF x86_64**
-(linux binary executable that only works on 64-bit Intel CPUs).
+(linux binary executable that only works on 64-bit Intel and AMD CPUs).
 
 The generated machine code is of questionable quality, but it works!
 
@@ -133,6 +133,7 @@ The hexadecimal digits can be uppercase.
 ### List of features
 
 - Compiled to machine language (not to llvm-ir, not to textual assembly, not to some other compiled language, but to actual binary like our ancestors used to write (no they didn't xd this is mostly for fun, and to get the achievement)). The machine code generation does not use dependencies (that explains why it is bad and unoptimized).
+- The parser is also hand written, no dependencies there, like the Egyptians used to do 3000 BC.
 - VSCode extension (with language server!).
 - Numbers and strings. Strings can be printed (don't ask about the numbers please).
 
