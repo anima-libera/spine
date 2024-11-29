@@ -2,7 +2,7 @@
 
 Compiled programming language in the making.
 It compiles directly to **ELF x86_64**
-(linux binary executable that only works on 64-bit Intel CPUs).
+(linux binary executable that only works on 64-bit Intel and AMD CPUs).
 
 The generated machine code is of questionable quality, but it works!
 
