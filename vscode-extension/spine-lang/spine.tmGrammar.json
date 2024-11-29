@@ -1,14 +1,14 @@
 {
 	"scopeName": "source.spine",
 	"patterns": [
-		{ "include": "#statement" }
+		{ "include": "#statement-component" }
 	],
 	"repository": {
-		"statement": {
+		"statement-component": {
 			"patterns": [
-				{ "include": "#integer" },
-				{ "include": "#character" },
-				{ "include": "#string" },
+				{ "include": "#integer-literal" },
+				{ "include": "#character-literal" },
+				{ "include": "#string-literal" },
 				{ "include": "#keyword" },
 				{ "include": "#semicolon" },
 				{ "include": "#comment" }
@@ -18,40 +18,40 @@
 			"match": "\\`\\w+",
 			"name": "keyword.spine"
 		},
-		"integer": {
+		"integer-literal": {
 			"patterns": [
-				{ "include": "#hexadecimal" },
-				{ "include": "#binary" },
-				{ "include": "#arbitrary-radix" },
-				{ "include": "#decimal" }
+				{ "include": "#hexadecimal-integer-literal" },
+				{ "include": "#binary-integer-literal" },
+				{ "include": "#arbitrary-radix-integer-literal" },
+				{ "include": "#decimal-integer-literal" }
 			]
 		},
-		"decimal": {
+		"decimal-integer-literal": {
 			"match": "\\d+",
 			"name": "constant.numeric.decimal.spine"
 		},
-		"hexadecimal": {
+		"hexadecimal-integer-literal": {
 			"match": "(0(?:x|X))(\\h+)",
 			"captures": {
 				"1": { "name": "storage.modifier.radix-prefix.hexadecimal.spine" },
 				"2": { "name": "constant.numeric.hexadecimal.spine" }
 			}
 		},
-		"binary": {
+		"binary-integer-literal": {
 			"match": "(0(?:b|B))([01]+)",
 			"captures": {
 				"1": { "name": "storage.modifier.radix-prefix.binary.spine" },
 				"2": { "name": "constant.numeric.binary.spine" }
 			}
 		},
-		"arbitrary-radix": {
+		"arbitrary-radix-integer-literal": {
 			"match": "(0(?:r|R)\\{\\d+\\})(\\h+)",
 			"captures": {
 				"1": { "name": "storage.modifier.radix-prefix.arbitrary.spine" },
 				"2": { "name": "constant.numeric.arbitrary-radix.spine" }
 			}
 		},
-		"character": {
+		"character-literal": {
 			"begin": "\\'",
 			"end": "\\'",
 			"beginCaptures": {
@@ -65,7 +65,7 @@
 				{ "include": "#escaped-character" }
 			]
 		},
-		"string": {
+		"string-literal": {
 			"begin": "\\\"",
 			"end": "\\\"",
 			"beginCaptures": {
