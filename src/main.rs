@@ -1,20 +1,18 @@
 #![allow(unused)]
 
 mod asm;
+#[cfg(test)]
+mod asm_test;
 mod elf;
 mod imm;
 mod lang;
-
 #[cfg(feature = "lsp")]
 mod lsp;
 
-#[cfg(test)]
-mod asm_test;
-
-use std::rc::Rc;
+use std::sync::Arc;
 
 use elf::chmod_x;
-use lang::{compile_to_binary, parse, SourceCode};
+use lang::{compile_to_binary, parse, parse_to_ast, LineStartTable, SourceCode};
 #[cfg(feature = "lsp")]
 use lsp::run_lsp;
 
@@ -113,15 +111,16 @@ fn main() {
 		if verbose {
 			println!("Reading source file \"{source_file_path}\"");
 		}
-		Rc::new(SourceCode {
-			text: std::fs::read_to_string(&source_file_path).unwrap(),
-			name: source_file_path.clone(),
-		})
+		let text = std::fs::read_to_string(&source_file_path).unwrap();
+		let line_starts = LineStartTable::compute_for_text(&text);
+		Arc::new(SourceCode { text, name: source_file_path.clone(), line_starts })
 	} else if let Some(raw_source) = raw_source {
 		if verbose {
 			println!("Reading raw source from command line arguments");
 		}
-		Rc::new(SourceCode { text: raw_source.clone(), name: "<raw source>".to_string() })
+		let text = raw_source.clone();
+		let line_starts = LineStartTable::compute_for_text(&text);
+		Arc::new(SourceCode { text, name: "<raw source>".to_string(), line_starts })
 	} else {
 		println!("No source code provided, nothing to do.");
 		println!("Run with `--help` to see the command line interface usage.");
@@ -133,11 +132,16 @@ fn main() {
 	if verbose {
 		println!("Compiling to intermediate representation");
 	}
-	let program = parse(source_code);
+	let program = parse(Arc::clone(&source_code));
 	if verbose {
 		println!("Compiling to machine code");
 	}
 	let bin = compile_to_binary(program);
+
+	if verbose {
+		let ast = parse_to_ast(source_code);
+		dbg!(ast);
+	}
 
 	if verbose {
 		println!("Machine code:");
