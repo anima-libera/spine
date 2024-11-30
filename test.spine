@@ -1,16 +1,20 @@
-kwprintchar kwadd ---{jeej} 90 --{jaaj} 7; -- uwu owo
-kwprintchar kwprintchar kwprintchar 98 99 10; ---uwu awa
---kwexit;
-
-kwprintchar kwprintchar kwprintchar kwprintchar '\?''\u{fffd}''\d{65533}''\n'; -- prints ���
---kwexit;
-
+-- Hello world!!
 kwprintstr "Hello, World!\n";
---kwexit;
 
+-- All of these print "a\n", they all demonstrate different literal syntaxes.
+kwprintchar kwprintchar 'a' '\n';          -- character
+kwprintchar kwprintchar '\x61' '\n';       -- character with two-hexadecimal-digits unicode escape
+kwprintchar kwprintchar '\u{61}' '\n';     -- character with hexadecimal-digits unicode escape
+kwprintchar kwprintchar '\d{97}' '\n';     -- character with decimal-digits unicode escape
 kwprintchar kwprintchar 97 10;             -- decimal
 kwprintchar kwprintchar 0x61 0xa;          -- hexadecimal
 kwprintchar kwprintchar 0b01100001 0b1010; -- binary
 kwprintchar kwprintchar 0r{8}141 0r{8}12;  -- arbitrary radix (here 8, so octal)
 
+-- Empty statement, very useful >w<
+;
+
+--{ Block comment }
+
+-- Terminates process execution. Segfault probably occurs if it is missing.
 kwexit;
