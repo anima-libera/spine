@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(unused)] // For now, WIP stuff gets too yellow for my taste
 
 mod asm;
 #[cfg(test)]
@@ -17,47 +17,23 @@ use lang::{compile_to_binary, parse, parse_to_ast, LineStartTable, SourceCode};
 use lsp::run_lsp;
 
 fn main() {
-	let mut source_file_path = None;
-	let mut raw_source = None;
-	let mut output_file_path = "b".to_string();
-	let mut verbose = false;
-	let mut help = false;
-	let mut license = false;
-	#[cfg(feature = "lsp")]
-	let mut lsp = false;
-
 	let args: Vec<_> = std::env::args().collect();
-	if let Some(source_file_option_index) = args
-		.iter()
-		.position(|arg| arg == "-f" || arg == "--source-file")
-	{
-		source_file_path = Some(args[source_file_option_index + 1].clone());
-	}
-	if let Some(source_raw_option_index) = args
-		.iter()
-		.position(|arg| arg == "-r" || arg == "--raw-source")
-	{
-		raw_source = Some(args[source_raw_option_index + 1].clone());
-	}
-	if let Some(output_file_option_index) = args
-		.iter()
-		.position(|arg| arg == "-o" || arg == "--output-file")
-	{
-		output_file_path = args[output_file_option_index + 1].clone();
-	}
-	if args.iter().any(|arg| arg == "-v" || arg == "--verbose") {
-		verbose = true;
-	}
-	if args.iter().any(|arg| arg == "-h" || arg == "--help") {
-		help = true;
-	}
-	if args.iter().any(|arg| arg == "--license") {
-		license = true;
-	}
+	let has_flag = |names: &[&str]| -> bool { args.iter().any(|arg| names.contains(&arg.as_str())) };
+	let option_value = |names: &[&str]| -> Option<&str> {
+		args
+			.iter()
+			.position(|arg| names.contains(&arg.as_str()))
+			.map(|name_index| args[name_index + 1].as_str())
+	};
+
+	let source_file_path = option_value(&["-f", "--source-file"]);
+	let raw_source = option_value(&["-r", "--raw-source"]);
+	let output_file_path = option_value(&["-o", "--output-file"]).unwrap_or("b");
+	let verbose = has_flag(&["-v", "--verbose"]);
+	let license = has_flag(&["--license"]);
+	let help = has_flag(&["-h", "--help"]);
 	#[cfg(feature = "lsp")]
-	if args.iter().any(|arg| arg == "--lsp") {
-		lsp = true;
-	}
+	let lsp = has_flag(&["--lsp"]);
 
 	#[cfg(feature = "lsp")]
 	if lsp {
@@ -111,16 +87,15 @@ fn main() {
 		if verbose {
 			println!("Reading source file \"{source_file_path}\"");
 		}
-		let text = std::fs::read_to_string(&source_file_path).unwrap();
-		let line_starts = LineStartTable::compute_for_text(&text);
-		Arc::new(SourceCode { text, name: source_file_path.clone(), line_starts })
+		Arc::new(SourceCode::from_file(source_file_path))
 	} else if let Some(raw_source) = raw_source {
 		if verbose {
 			println!("Reading raw source from command line arguments");
 		}
-		let text = raw_source.clone();
-		let line_starts = LineStartTable::compute_for_text(&text);
-		Arc::new(SourceCode { text, name: "<raw source>".to_string(), line_starts })
+		Arc::new(SourceCode::from_string(
+			raw_source.to_string(),
+			"<raw source>".to_string(),
+		))
 	} else {
 		println!("No source code provided, nothing to do.");
 		println!("Run with `--help` to see the command line interface usage.");
@@ -154,6 +129,6 @@ fn main() {
 	if verbose {
 		println!("Writing compiled binary to file \"{output_file_path}\"");
 	}
-	std::fs::write(&output_file_path, bin.to_binary()).unwrap();
-	chmod_x(&output_file_path);
+	std::fs::write(output_file_path, bin.to_binary()).unwrap();
+	chmod_x(output_file_path);
 }

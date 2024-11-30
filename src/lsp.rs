@@ -1,9 +1,7 @@
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use serde_json::Value;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -61,13 +59,7 @@ impl LanguageServer for Backend {
 
 	async fn did_open(&self, params: DidOpenTextDocumentParams) {
 		let source_file_path = params.text_document.uri.to_file_path().unwrap();
-		let text = std::fs::read_to_string(&source_file_path).unwrap();
-		let line_starts = LineStartTable::compute_for_text(&text);
-		let source = Arc::new(SourceCode {
-			text,
-			name: source_file_path.to_str().unwrap().to_string(),
-			line_starts,
-		});
+		let source = Arc::new(SourceCode::from_file(&source_file_path));
 		let ast = parse_to_ast(Arc::clone(&source));
 		let source_file = SourceFileData { source, ast };
 		self
@@ -82,13 +74,9 @@ impl LanguageServer for Backend {
 	async fn did_change(&self, params: DidChangeTextDocumentParams) {
 		let source_file_path = params.text_document.uri.to_file_path().unwrap();
 		//let source_file = self.source_files.lock().unwrap().get_mut(&source_file_path);
-		let text = params.content_changes.first().unwrap().text.clone();
-		let line_starts = LineStartTable::compute_for_text(&text);
-		let source = Arc::new(SourceCode {
-			text,
-			name: source_file_path.to_str().unwrap().to_string(),
-			line_starts,
-		});
+		let source_text = params.content_changes.first().unwrap().text.clone();
+		let name = source_file_path.to_str().unwrap().to_string();
+		let source = Arc::new(SourceCode::from_string(source_text, name));
 		let ast = parse_to_ast(Arc::clone(&source));
 		let source_file = SourceFileData { source, ast };
 		self
@@ -96,6 +84,7 @@ impl LanguageServer for Backend {
 			.lock()
 			.unwrap()
 			.insert(source_file_path, source_file);
+
 		self
 			.client
 			.log_message(MessageType::INFO, "did change")
@@ -189,7 +178,7 @@ impl LanguageServer for Backend {
 		let statement = 'statement_search: {
 			for statement in source_file.ast.statements.iter() {
 				if statement.span.contains_lsp_position(LspPosition {
-					line_number: pos.line,
+					zero_based_line_number: pos.line,
 					index_in_bytes_in_line: pos.character,
 				}) {
 					break 'statement_search statement;
@@ -198,7 +187,7 @@ impl LanguageServer for Backend {
 			return Ok(None);
 		};
 		let bit_of_code = statement.span.as_str();
-		let line_range = statement.span.line_range();
+		let one_based_line_range = statement.span.one_based_line_range();
 		let documentation = format!(
 			"{}\n\n{}",
 			match statement.specific_statement {
@@ -206,20 +195,23 @@ impl LanguageServer for Backend {
 				AstStatement::Code { ref instructions } =>
 					format!("Code statement of {} insructions", instructions.len()),
 			},
-			if line_range.0 == line_range.1 {
-				format!("On line {}", line_range.0 + 1)
+			if one_based_line_range.0 == one_based_line_range.1 {
+				format!("On line {}", one_based_line_range.0)
 			} else {
-				format!("On lines {}-{}", line_range.0 + 1, line_range.1 + 1)
+				format!(
+					"On lines {}-{}",
+					one_based_line_range.0, one_based_line_range.1
+				)
 			}
 		);
 		let range = statement.span.to_lsp_positions();
 		let highlight_range = Range {
 			start: Position {
-				line: range.start.line_number,
+				line: range.start.zero_based_line_number,
 				character: range.start.index_in_bytes_in_line,
 			},
 			end: Position {
-				line: range.end.line_number,
+				line: range.end.zero_based_line_number,
 				character: range.end.index_in_bytes_in_line,
 			},
 		};
