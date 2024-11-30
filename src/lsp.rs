@@ -123,7 +123,8 @@ impl LanguageServer for Backend {
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: "Explicit keyword\n\nCalls the `exit` syscall, which terminates the process execution."
+						value: "Explicit keyword\n\n\
+							Calls the `exit` syscall, which terminates the process execution."
 							.to_string(),
 					})),
 					..CompletionItem::default()
@@ -135,7 +136,8 @@ impl LanguageServer for Backend {
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: "Calls the `write` syscall with a string made of the provided character."
+						value: "Explicit keyword\n\n\
+							Calls the `write` syscall with a string made of the provided character."
 							.to_string(),
 					})),
 					..CompletionItem::default()
@@ -147,7 +149,9 @@ impl LanguageServer for Backend {
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: "Calls the `write` syscall with the given pointer and length.".to_string(),
+						value: "Explicit keyword\n\n\
+							Calls the `write` syscall with the given pointer and length."
+							.to_string(),
 					})),
 					..CompletionItem::default()
 				},
@@ -158,7 +162,9 @@ impl LanguageServer for Backend {
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: "Pops number A, pops number B, pushes the result of A + B.".to_string(),
+						value: "Explicit keyword\n\n\
+							Pops number A, pops number B, pushes the result of A + B."
+							.to_string(),
 					})),
 					..CompletionItem::default()
 				},
