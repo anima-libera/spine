@@ -15,7 +15,7 @@
 			]
 		},
 		"keyword": {
-			"match": "\\`\\w+",
+			"match": "\\bkw\\w+\\b",
 			"name": "keyword.spine"
 		},
 		"integer-literal": {

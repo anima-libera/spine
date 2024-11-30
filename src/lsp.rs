@@ -32,7 +32,7 @@ impl LanguageServer for Backend {
 				position_encoding: Some(PositionEncodingKind::UTF8),
 				hover_provider: Some(HoverProviderCapability::Simple(true)),
 				completion_provider: Some(CompletionOptions {
-					trigger_characters: Some(vec!["`".to_string()]),
+					trigger_characters: Some(vec![]),
 					..Default::default()
 				}),
 				..Default::default()
@@ -117,20 +117,20 @@ impl LanguageServer for Backend {
 		}) {
 			Ok(Some(CompletionResponse::Array(vec![
 				CompletionItem {
-					label: "`exit".to_string(),
-					insert_text: Some("exit".to_string()),
+					label: "kwexit".to_string(),
+					insert_text: Some("kwexit".to_string()),
 					detail: Some("( -- ) Terminate execution".to_string()),
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: "Calls the `exit` syscall, which terminates the process execution."
+						value: "Explicit keyword\n\nCalls the `exit` syscall, which terminates the process execution."
 							.to_string(),
 					})),
 					..CompletionItem::default()
 				},
 				CompletionItem {
-					label: "`printchar".to_string(),
-					insert_text: Some("printchar".to_string()),
+					label: "kwprintchar".to_string(),
+					insert_text: Some("kwprintchar".to_string()),
 					detail: Some("( char -- ) Prints character".to_string()),
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
@@ -141,8 +141,8 @@ impl LanguageServer for Backend {
 					..CompletionItem::default()
 				},
 				CompletionItem {
-					label: "`printstr".to_string(),
-					insert_text: Some("printstr".to_string()),
+					label: "kwprintstr".to_string(),
+					insert_text: Some("kwprintstr".to_string()),
 					detail: Some("( ptr len -- ) Prints string".to_string()),
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
@@ -152,8 +152,8 @@ impl LanguageServer for Backend {
 					..CompletionItem::default()
 				},
 				CompletionItem {
-					label: "`add".to_string(),
-					insert_text: Some("add".to_string()),
+					label: "kwadd".to_string(),
+					insert_text: Some("kwadd".to_string()),
 					detail: Some("( a b -- (a+b) ) Adds two numbers".to_string()),
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {

@@ -1,16 +1,16 @@
-`printchar `add ---{jeej} 90 --{jaaj} 7; -- uwu owo
-`printchar `printchar `printchar 98 99 10; ---uwu awa
---`exit;
+kwprintchar kwadd ---{jeej} 90 --{jaaj} 7; -- uwu owo
+kwprintchar kwprintchar kwprintchar 98 99 10; ---uwu awa
+--kwexit;
 
-`printchar`printchar`printchar`printchar '\?''\u{fffd}''\d{65533}''\n'; -- prints ���
---`exit;
+kwprintchar kwprintchar kwprintchar kwprintchar '\?''\u{fffd}''\d{65533}''\n'; -- prints ���
+--kwexit;
 
-`printstr "Hello, World!\n";
---`exit;
+kwprintstr "Hello, World!\n";
+--kwexit;
 
-`printchar `printchar 97 10;             -- decimal
-`printchar `printchar 0x61 0xa;          -- hexadecimal
-`printchar `printchar 0b01100001 0b1010; -- binary
-`printchar `printchar 0r{8}141 0r{8}12;  -- arbitrary radix (here 8, so octal)
+kwprintchar kwprintchar 97 10;             -- decimal
+kwprintchar kwprintchar 0x61 0xa;          -- hexadecimal
+kwprintchar kwprintchar 0b01100001 0b1010; -- binary
+kwprintchar kwprintchar 0r{8}141 0r{8}12;  -- arbitrary radix (here 8, so octal)
 
-`exit;
+kwexit;

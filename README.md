@@ -26,7 +26,7 @@ Installing is necessary for the VSCode extension to use the language server.
 
 Usage:
 ```sh
-spine -f test.spine -o binary & ./binary
+spine -f test.spine -o binary && ./binary
 ```
 (replace `spine` with `cargo run --` if you just `git clone`-ed or downloaded the repo)
 
