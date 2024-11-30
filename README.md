@@ -32,7 +32,7 @@ spine -f test.spine -o binary && ./binary
 
 Can also provide raw source code in command line:
 ```sh
-spine -r "\`printstr \"haiii :3\\n\"; \`exit" && ./b
+spine -r "kwprintstr \"haiii :3\\n\"; kwexit" && ./b
 ```
 (woa what an amazing feature!!!¡¡)
 
@@ -64,8 +64,8 @@ Building without the language server part makes the compiler binary significantl
 ## Spine programming language tour
 
 ```
-`printstr "haiii world!!!\n"; -- uwu
-`exit;                        -- dont forget, or else segfault
+kwprintstr "haiii world!!!\n"; -- uwu
+kwexit;                        -- dont forget, or else segfault
 ```
 
 ### Features and syntax
@@ -79,15 +79,15 @@ Building without the language server part makes the compiler binary significantl
 
 #### Statements
 
-Statements are separated by `;` (semicolon).
+Statements are separated by a `;` (semicolon).
 
-Here is an example of statement: `` `printstr "uwu\n"; ``
+Here is an example of statement: `kwprintstr "uwu\n";`
 
 A Spine program is a sequence of statements, executed from left to right.
 However, inside a statement, the instructions can be understood as being executed from right to left.
 
-In the piece of code `` `printchar 'a'; `printchar 'b'; `` the satement that prints `a` is executed before the statement that prints `b` (as we would expect), but inside a statement it is the instruction `'a'` that is executed before `` `printchar ``.
-`'a'` pushes the character `a` on the stack, and `` `printchar `` pops it and prints it.
+In the piece of code `kwprintchar 'a'; kwprintchar 'b';` the satement that prints `a` is executed before the statement that prints `b` (as we would expect), but inside a statement it is the instruction `'a'` that is executed before `kwprintchar`.
+`'a'` pushes the character `a` on the stack, and `kwprintchar` pops it and prints it.
 
 #### Typechecking
 
@@ -99,15 +99,15 @@ Inside a statement, instructions that consume operands of certain types do expec
 
 Instruction operands and result values are documented with the syntax `(a b --> c d)` meaning that the instruction consumes (pops) `b` (on the top when the instruction executes) then `a` and it produces (pushes) `c` then `d` (so that `d` is on the top when the instruction finishes).
 
-Some of the instructions syntax are keywords that begin with the character `` ` `` (grave accent), this is not a markdown typo, it is just the syntax used by internal keywords (keywords that are intended to be used only by the future stdlib implementation, or only for testing, but that are documented anyway because a definitive proper syntax is not yet implemented).
+Some of the instructions syntax are keywords that begin with `kw`, this is the syntax used by internal keywords (keywords that are intended to be used only by the future stdlib implementation, or only for testing, but that are documented anyway because a definitive proper syntax is not yet implemented).
 
-- `` `exit `` ( --> ) calls the `exit` syscall which terminates the process. It is expected at the end of Spine programs, or else execution will get past the end and into non-machine-code memory (which would cause undefined behavior, probably a segfault due to virtual memory pages after that not being allocated or marked as executable).
-- `` `printchar `` (character --> ) prints the character to stdout.
-- `` `printstr `` (pointer n --> ) prints n characters of the string pointed to by the pointer. If the string is shorter than n then undefined behavior occurs (the stuff after gets printed too, hopefully it is valid utf-8 >w< and hopefully it is in allocated virtual memory pages marked as readable).
-- `` `add `` (n m --> r) pops and adds n and m then pushes the result.
+- `kwexit` `( --> )` calls the `exit` syscall which terminates the process. It is expected at the end of Spine programs, or else execution will get past the end and into non-machine-code memory (which would cause undefined behavior, probably a segfault due to virtual memory pages after that not being allocated or marked as executable).
+- `kwprintchar` `(character --> )` prints the character to stdout.
+- `kwprintstr` `(pointer n --> )` prints n characters of the string pointed to by the pointer. If the string is shorter than n then undefined behavior occurs (the stuff after gets printed too, hopefully it is valid utf-8 >w< and hopefully it is in allocated virtual memory pages marked as readable).
+- `kwadd` `(n m --> r)` pops and adds n and m then pushes the result.
 - `41` ( --> 41) pushes 41. It works for other unsigned numbers too. Can be in hexadecimal (when prefixed by `0x`), in binary (when prefixed by `0b`), or in some arbitrary radix (when prefixed by `0r{8}` for octal for example); the `x`, `b` and `r` can be uppercase.
 - `'a'` ( --> a) pushes the character `a`. It works for other characters too. See the [character escape syntax](#character-escape).
-- `"awawa"` ( --> pointer len) pushes a pointer to the begining of static data that is the utf-8 encoding of `awawa`, and then pushes the length (of the utf-8 encoding, in bytes) of that string. It works for other strings too. See the [character escape syntax](#character-escape). Note how it works nicely with `` `printstr ``.
+- `"awawa"` ( --> pointer len) pushes a pointer to the begining of static data that is the utf-8 encoding of `awawa`, and then pushes the length (of the utf-8 encoding, in bytes) of that string. It works for other strings too. See the [character escape syntax](#character-escape). Note how it works nicely with `kwprintstr`.
 
 #### Character escape
 
