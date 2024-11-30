@@ -378,191 +378,213 @@ fn pop_escaped_character_from_reader(reader: &mut SourceCodeReader) -> Character
 	CharacterEscape { span, produced_character, representation_in_source }
 }
 
-/// Consumes and tokenizes the next token.
-fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
+fn parse_integer_literal(reader: &mut SourceCodeReader) -> Token {
 	let first_character = reader.peek_character();
 	let pos_first_character = reader.next_character_pos();
-	match first_character {
-		Some('0'..='9') => {
-			let radix_prefix = if reader.peek_character() == Some('0') {
-				reader.skip_character();
-				let maybe_radix_character = reader.peek_character();
-				if maybe_radix_character.is_none_or(|c| !c.is_ascii_alphanumeric()) {
-					// Not a radix prefix.
-					None
-				} else {
-					reader.skip_character();
-					let radix_character = maybe_radix_character.unwrap();
-					match radix_character {
-						'x' | 'X' => Some(RadixPrefix {
-							span: reader.passed_span(
-								pos_first_character.unwrap(),
-								reader.previous_character_pos().unwrap(),
-							),
-							kind: RadixPrefixKind::Hexadecimal,
-							uppercase: radix_character.is_uppercase(),
-						}),
-						'b' | 'B' => Some(RadixPrefix {
-							span: reader.passed_span(
-								pos_first_character.unwrap(),
-								reader.previous_character_pos().unwrap(),
-							),
-							kind: RadixPrefixKind::Binary,
-							uppercase: radix_character.is_uppercase(),
-						}),
-						'r' | 'R' => {
-							assert_eq!(reader.pop_character(), Some('{'));
-							let pos_radix_number_start = reader.next_character_pos().unwrap();
-							reader.skip_characters_while(|c| c.is_ascii_digit());
-							let pos_radix_number_end = reader.previous_character_pos().unwrap();
-							assert_eq!(reader.pop_character(), Some('}'));
-							let pos_last_character_radix_prefix = reader.previous_character_pos().unwrap();
-							let pos_first_character_after_radix_prefix =
-								reader.next_character_pos().unwrap();
-							let radix_number_span =
-								reader.passed_span(pos_radix_number_start, pos_radix_number_end);
-							let radix_number = radix_number_span.as_str().parse().unwrap();
-							Some(RadixPrefix {
-								span: reader.passed_span(
-									pos_first_character.unwrap(),
-									pos_last_character_radix_prefix,
-								),
-								kind: RadixPrefixKind::Arbitrary(radix_number),
-								uppercase: radix_character.is_uppercase(),
-							})
-						},
-						unknown => panic!("unknown radix prefix char {unknown}"),
-					}
-				}
-			} else {
-				None
-			};
-			let radix_number = radix_prefix
-				.as_ref()
-				.map_or(10, |radix_prefix| radix_prefix.kind.radix());
-			if 16 < radix_number {
-				unimplemented!(); // yet
-			}
-			reader.skip_characters_while(|c| c.is_ascii_hexdigit());
-			let span_without_radix_prefix = reader.passed_span(
-				radix_prefix
-					.as_ref()
-					.map_or(pos_first_character, |radix_prefix| {
-						radix_prefix.span.next_char_pos()
+	let radix_prefix = if reader.peek_character() == Some('0') {
+		reader.skip_character();
+		let maybe_radix_character = reader.peek_character();
+		if maybe_radix_character.is_none_or(|c| !c.is_ascii_alphanumeric()) {
+			// Not a radix prefix.
+			None
+		} else {
+			reader.skip_character();
+			let radix_character = maybe_radix_character.unwrap();
+			match radix_character {
+				'x' | 'X' => Some(RadixPrefix {
+					span: reader.passed_span(
+						pos_first_character.unwrap(),
+						reader.previous_character_pos().unwrap(),
+					),
+					kind: RadixPrefixKind::Hexadecimal,
+					uppercase: radix_character.is_uppercase(),
+				}),
+				'b' | 'B' => Some(RadixPrefix {
+					span: reader.passed_span(
+						pos_first_character.unwrap(),
+						reader.previous_character_pos().unwrap(),
+					),
+					kind: RadixPrefixKind::Binary,
+					uppercase: radix_character.is_uppercase(),
+				}),
+				'r' | 'R' => {
+					assert_eq!(reader.pop_character(), Some('{'));
+					let pos_radix_number_start = reader.next_character_pos().unwrap();
+					reader.skip_characters_while(|c| c.is_ascii_digit());
+					let pos_radix_number_end = reader.previous_character_pos().unwrap();
+					assert_eq!(reader.pop_character(), Some('}'));
+					let pos_last_character_radix_prefix = reader.previous_character_pos().unwrap();
+					let pos_first_character_after_radix_prefix = reader.next_character_pos().unwrap();
+					let radix_number_span =
+						reader.passed_span(pos_radix_number_start, pos_radix_number_end);
+					let radix_number = radix_number_span.as_str().parse().unwrap();
+					Some(RadixPrefix {
+						span: reader.passed_span(
+							pos_first_character.unwrap(),
+							pos_last_character_radix_prefix,
+						),
+						kind: RadixPrefixKind::Arbitrary(radix_number),
+						uppercase: radix_character.is_uppercase(),
 					})
-					.unwrap(),
-				reader.previous_character_pos().unwrap(),
-			);
-			let value = i64::from_str_radix(span_without_radix_prefix.as_str(), radix_number).unwrap();
-			let span = reader.passed_span(
-				pos_first_character.unwrap(),
-				reader.previous_character_pos().unwrap(),
-			);
-			let token = Token::IntegerLiteral(IntegerLiteral { span, radix_prefix, value });
-			Some(token)
-		},
-		Some('\'') => {
-			reader.skip_character();
-			let character_escape = (reader.peek_character() == Some('\\'))
-				.then(|| pop_escaped_character_from_reader(reader));
-			let character = if let Some(character_escape) = &character_escape {
-				character_escape.produced_character
-			} else {
-				reader.pop_character().unwrap()
-			};
-			assert_eq!(reader.pop_character(), Some('\''));
-			let span = reader.passed_span(
-				pos_first_character.unwrap(),
-				reader.previous_character_pos().unwrap(),
-			);
-			let token =
-				Token::CharacterLiteral(CharacterLiteral { span, character_escape, value: character });
-			Some(token)
-		},
-		Some('\"') => {
-			reader.skip_character();
-			let mut string = String::new();
-			let mut character_escapes = vec![];
-			loop {
-				if reader.peek_character() == Some('\"') {
-					reader.skip_character();
-					break;
-				} else if reader.peek_character() == Some('\\') {
-					let character_escape = pop_escaped_character_from_reader(reader);
-					string.push(character_escape.produced_character);
-					character_escapes.push(character_escape);
-				} else {
-					string.push(reader.pop_character().unwrap());
-				};
+				},
+				unknown => panic!("unknown radix prefix char {unknown}"),
 			}
-			let span = reader.passed_span(
-				pos_first_character.unwrap(),
-				reader.previous_character_pos().unwrap(),
-			);
-			let token = Token::StringLiteral(StringLiteral { span, character_escapes, value: string });
-			Some(token)
-		},
-		Some('`') => {
-			reader.skip_character();
-			reader.skip_characters_while(|c| c.is_ascii_alphanumeric());
-			let span = reader.passed_span(
-				pos_first_character.unwrap(),
-				reader.previous_character_pos().unwrap(),
-			);
-			let keyword = match span.as_str() {
-				"`printchar" => Some(ExplicitKeywordWhich::PrintChar),
-				"`printstr" => Some(ExplicitKeywordWhich::PrintStr),
-				"`add" => Some(ExplicitKeywordWhich::Add),
-				"`exit" => Some(ExplicitKeywordWhich::Exit),
-				_ => None,
-			};
-			let token = Token::ExplicitKeyword(ExplicitKeyword { span, keyword });
-			Some(token)
-		},
-		Some(';') => {
-			reader.skip_character();
-			let span = reader.passed_span(pos_first_character.unwrap(), pos_first_character.unwrap());
-			Some(Token::Semicolon(span))
-		},
-		Some('-' | ' ' | '\n' | '\r' | '\t') => {
-			let mut comments = vec![];
-			loop {
-				reader.skip_whitespace();
-				if reader.peek_character() != Some('-') {
-					break;
-				}
-				reader.skip_character();
-				assert_eq!(reader.pop_character(), Some('-'));
-				let is_doc = reader.peek_character() == Some('-');
-				if is_doc {
-					reader.skip_character();
-				}
-				let is_block = reader.peek_character() == Some('{');
-				if is_block {
-					reader.skip_character();
-					reader.skip_characters_while(|c| c != '}');
-					reader.skip_character();
-				} else {
-					reader.skip_characters_while(|c| c != '\n');
-					reader.skip_character();
-				}
-				let span = reader.passed_span(
-					pos_first_character.unwrap(),
-					reader.previous_character_pos().unwrap(),
-				);
-				let comment = Comment { span, is_block, is_doc };
-				comments.push(comment);
-			}
-			let span = reader.passed_span(
-				pos_first_character.unwrap(),
-				reader.previous_character_pos().unwrap(),
-			);
-			let token = Token::WhitespaceAndComments(WhitespaceAndComments { span, comments });
-			Some(token)
-		},
-		Some(unknown) => panic!("failed to tokenize char {unknown}"),
-		None => None,
+		}
+	} else {
+		None
+	};
+	let radix_number = radix_prefix
+		.as_ref()
+		.map_or(10, |radix_prefix| radix_prefix.kind.radix());
+	if 16 < radix_number {
+		unimplemented!(); // yet
 	}
+	reader.skip_characters_while(|c| c.is_ascii_hexdigit());
+	let span_without_radix_prefix = reader.passed_span(
+		radix_prefix
+			.as_ref()
+			.map_or(pos_first_character, |radix_prefix| {
+				radix_prefix.span.next_char_pos()
+			})
+			.unwrap(),
+		reader.previous_character_pos().unwrap(),
+	);
+	let value = i64::from_str_radix(span_without_radix_prefix.as_str(), radix_number).unwrap();
+	let span = reader.passed_span(
+		pos_first_character.unwrap(),
+		reader.previous_character_pos().unwrap(),
+	);
+	Token::IntegerLiteral(IntegerLiteral { span, radix_prefix, value })
+}
+
+fn parse_character_literal(reader: &mut SourceCodeReader) -> Token {
+	let first_character = reader.peek_character();
+	let pos_first_character = reader.next_character_pos();
+	reader.skip_character();
+	let character_escape =
+		(reader.peek_character() == Some('\\')).then(|| pop_escaped_character_from_reader(reader));
+	let character = if let Some(character_escape) = &character_escape {
+		character_escape.produced_character
+	} else {
+		reader.pop_character().unwrap()
+	};
+	assert_eq!(reader.pop_character(), Some('\''));
+	let span = reader.passed_span(
+		pos_first_character.unwrap(),
+		reader.previous_character_pos().unwrap(),
+	);
+	Token::CharacterLiteral(CharacterLiteral { span, character_escape, value: character })
+}
+
+fn parse_string_literal(reader: &mut SourceCodeReader) -> Token {
+	let first_character = reader.peek_character();
+	let pos_first_character = reader.next_character_pos();
+	reader.skip_character();
+	let mut string = String::new();
+	let mut character_escapes = vec![];
+	loop {
+		if reader.peek_character() == Some('\"') {
+			reader.skip_character();
+			break;
+		} else if reader.peek_character() == Some('\\') {
+			let character_escape = pop_escaped_character_from_reader(reader);
+			string.push(character_escape.produced_character);
+			character_escapes.push(character_escape);
+		} else {
+			string.push(reader.pop_character().unwrap());
+		};
+	}
+	let span = reader.passed_span(
+		pos_first_character.unwrap(),
+		reader.previous_character_pos().unwrap(),
+	);
+	Token::StringLiteral(StringLiteral { span, character_escapes, value: string })
+}
+
+fn parse_word(reader: &mut SourceCodeReader) -> Token {
+	let first_character = reader.peek_character();
+	let pos_first_character = reader.next_character_pos();
+	reader.skip_character();
+	reader.skip_characters_while(|c| c.is_ascii_alphanumeric());
+	let span = reader.passed_span(
+		pos_first_character.unwrap(),
+		reader.previous_character_pos().unwrap(),
+	);
+	let word = span.as_str();
+	if word.starts_with("kw") {
+		// Explicit keyword
+		let keyword = match word {
+			"kwprintchar" => Some(ExplicitKeywordWhich::PrintChar),
+			"kwprintstr" => Some(ExplicitKeywordWhich::PrintStr),
+			"kwadd" => Some(ExplicitKeywordWhich::Add),
+			"kwexit" => Some(ExplicitKeywordWhich::Exit),
+			_ => None,
+		};
+		Token::ExplicitKeyword(ExplicitKeyword { span, keyword })
+	} else {
+		unimplemented!()
+	}
+}
+
+fn parse_whitespace_and_comments(reader: &mut SourceCodeReader) -> Token {
+	let first_character = reader.peek_character();
+	let pos_first_character = reader.next_character_pos();
+	let mut comments = vec![];
+	loop {
+		reader.skip_whitespace();
+		if reader.peek_character() != Some('-') {
+			break;
+		}
+		reader.skip_character();
+		assert_eq!(reader.pop_character(), Some('-'));
+		let is_doc = reader.peek_character() == Some('-');
+		if is_doc {
+			reader.skip_character();
+		}
+		let is_block = reader.peek_character() == Some('{');
+		if is_block {
+			reader.skip_character();
+			reader.skip_characters_while(|c| c != '}');
+			reader.skip_character();
+		} else {
+			reader.skip_characters_while(|c| c != '\n');
+			reader.skip_character();
+		}
+		let span = reader.passed_span(
+			pos_first_character.unwrap(),
+			reader.previous_character_pos().unwrap(),
+		);
+		let comment = Comment { span, is_block, is_doc };
+		comments.push(comment);
+	}
+	let span = reader.passed_span(
+		pos_first_character.unwrap(),
+		reader.previous_character_pos().unwrap(),
+	);
+	Token::WhitespaceAndComments(WhitespaceAndComments { span, comments })
+}
+
+/// Consumes and tokenizes the next token.
+fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
+	let first_character = reader.peek_character()?;
+	let pos_first_character = reader.next_character_pos().unwrap();
+	Some(if first_character.is_ascii_digit() {
+		parse_integer_literal(reader)
+	} else if first_character == '\'' {
+		parse_character_literal(reader)
+	} else if first_character == '\"' {
+		parse_string_literal(reader)
+	} else if first_character.is_ascii_alphabetic() {
+		parse_word(reader)
+	} else if first_character == ';' {
+		reader.skip_character();
+		let span = reader.passed_span(pos_first_character, pos_first_character);
+		Token::Semicolon(span)
+	} else if first_character.is_whitespace() || first_character == '-' {
+		parse_whitespace_and_comments(reader)
+	} else {
+		panic!("failed to tokenize token that starts with char {first_character}")
+	})
 }
 
 fn pop_token_from_reader_ignoring_comments(reader: &mut SourceCodeReader) -> Option<Token> {
