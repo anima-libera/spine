@@ -10,7 +10,7 @@ use crate::lang::{parse, HighProgram, HighStatement, LineStartTable, LspPosition
 
 struct SourceFileData {
 	source: Arc<SourceCode>,
-	ast: HighProgram,
+	high_program: HighProgram,
 }
 
 struct Backend {
@@ -58,8 +58,8 @@ impl LanguageServer for Backend {
 	async fn did_open(&self, params: DidOpenTextDocumentParams) {
 		let source_file_path = params.text_document.uri.to_file_path().unwrap();
 		let source = Arc::new(SourceCode::from_file(&source_file_path));
-		let ast = parse(Arc::clone(&source));
-		let source_file = SourceFileData { source, ast };
+		let high_program = parse(Arc::clone(&source));
+		let source_file = SourceFileData { source, high_program };
 		self
 			.source_files
 			.lock()
@@ -75,8 +75,8 @@ impl LanguageServer for Backend {
 		let source_text = params.content_changes.first().unwrap().text.clone();
 		let name = source_file_path.to_str().unwrap().to_string();
 		let source = Arc::new(SourceCode::from_string(source_text, name));
-		let ast = parse(Arc::clone(&source));
-		let source_file = SourceFileData { source, ast };
+		let high_program = parse(Arc::clone(&source));
+		let source_file = SourceFileData { source, high_program };
 		self
 			.source_files
 			.lock()
@@ -174,7 +174,7 @@ impl LanguageServer for Backend {
 		};
 		let pos = params.text_document_position_params.position;
 		let statement = 'statement_search: {
-			for statement in source_file.ast.statements.iter() {
+			for statement in source_file.high_program.statements.iter() {
 				if statement.span().contains_lsp_position(LspPosition {
 					zero_based_line_number: pos.line,
 					index_in_bytes_in_line: pos.character,

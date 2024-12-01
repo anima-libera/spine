@@ -1,7 +1,10 @@
 [package]
 name = "spine"
 version = "0.1.0"
+description = "Spine lang compiler and tooling"
 edition = "2021"
+license = "Apache-2.0 OR MIT"
+authors = ["Anima <anim.libera@gmail.com>"]
 
 [features]
 default = ["lsp"]

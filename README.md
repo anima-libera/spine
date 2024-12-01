@@ -17,7 +17,7 @@ cargo install --git https://github.com/anima-libera/spine.git
 
 or (after `git clone`-ing or downloading the repo)
 ```sh
-cargo install --path .
+cargo install --path . --locked
 ```
 
 Installing is necessary for the VSCode extension to use the language server.
@@ -37,6 +37,8 @@ spine -r "kwprintstr \"haiii :3\\n\"; kwexit" && ./b
 (woa what an amazing feature!!!¡¡)
 
 (default output binary path is "b" when not provided via `-o`)
+
+Use `--help` to get the list of available options.
 
 ## VSCode extension
 
