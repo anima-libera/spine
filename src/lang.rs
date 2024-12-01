@@ -276,16 +276,6 @@ impl Pos {
 			.map(|pos| pos.with_source(Arc::clone(&self.source)))
 	}
 
-	fn to_lsp_position(&self) -> LspPosition {
-		let line_start_in_bytes =
-			self.source.line_starts.table[self.pos_simple.zero_based_line_number].index_in_bytes;
-		let index_in_bytes_in_line = (self.pos_simple.index_in_bytes - line_start_in_bytes) as u32;
-		LspPosition {
-			zero_based_line_number: self.pos_simple.zero_based_line_number as u32,
-			index_in_bytes_in_line,
-		}
-	}
-
 	fn one_char_span(self) -> Span {
 		let pos_simple = self.without_source();
 		Span { source: self.source, start: pos_simple, end: pos_simple }
@@ -400,6 +390,7 @@ impl Span {
 	}
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LspPosition {
 	pub(crate) zero_based_line_number: u32,
 	/// Zero-based, index in the bytes of the line.
@@ -411,6 +402,22 @@ pub(crate) struct LspRange {
 	pub(crate) start: LspPosition,
 	/// Excluded! Beware.
 	pub(crate) end: LspPosition,
+}
+
+impl Pos {
+	fn to_lsp_position(&self) -> LspPosition {
+		let line_start_in_bytes =
+			self.source.line_starts.table[self.pos_simple.zero_based_line_number].index_in_bytes;
+		let index_in_bytes_in_line = (self.pos_simple.index_in_bytes - line_start_in_bytes) as u32;
+		LspPosition {
+			zero_based_line_number: self.pos_simple.zero_based_line_number as u32,
+			index_in_bytes_in_line,
+		}
+	}
+
+	pub(crate) fn is_lsp_position(&self, lsp_pos: LspPosition) -> bool {
+		self.to_lsp_position() == lsp_pos
+	}
 }
 
 impl Span {
@@ -887,7 +894,7 @@ pub(crate) enum HighInstruction {
 }
 
 impl HighInstruction {
-	fn span(&self) -> &Span {
+	pub(crate) fn span(&self) -> &Span {
 		match self {
 			HighInstruction::IntegerLiteral(t) => &t.span,
 			HighInstruction::CharacterLiteral(t) => &t.span,

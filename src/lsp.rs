@@ -6,7 +6,9 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use crate::lang::{parse, HighProgram, HighStatement, LineStartTable, LspPosition, SourceCode};
+use crate::lang::{
+	parse, HighInstruction, HighProgram, HighStatement, LineStartTable, LspPosition, Pos, SourceCode,
+};
 
 struct SourceFileData {
 	source: Arc<SourceCode>,
@@ -173,37 +175,77 @@ impl LanguageServer for Backend {
 			return Ok(None);
 		};
 		let pos = params.text_document_position_params.position;
+		let pos = LspPosition {
+			zero_based_line_number: pos.line,
+			index_in_bytes_in_line: pos.character,
+		};
 		let statement = 'statement_search: {
 			for statement in source_file.high_program.statements.iter() {
-				if statement.span().contains_lsp_position(LspPosition {
-					zero_based_line_number: pos.line,
-					index_in_bytes_in_line: pos.character,
-				}) {
+				if statement.span().contains_lsp_position(pos) {
 					break 'statement_search statement;
 				}
 			}
 			return Ok(None);
 		};
-		let span = statement.span();
-		let bit_of_code = span.as_str();
-		let one_based_line_range = statement.span().one_based_line_range();
-		let documentation = format!(
-			"{}\n\n{}",
+		enum TokenThingy<'a> {
+			Semicolon(&'a Pos),
+			Instruction(&'a HighInstruction),
+		}
+		let token_thingy = 'token_thingy: {
 			match statement {
-				HighStatement::Empty { .. } => "Empty statement".to_string(),
-				HighStatement::Code { ref instructions, .. } =>
-					format!("Code statement of {} insructions", instructions.len()),
-			},
-			if one_based_line_range.0 == one_based_line_range.1 {
-				format!("On line {}", one_based_line_range.0)
-			} else {
-				format!(
-					"On lines {}-{}",
-					one_based_line_range.0, one_based_line_range.1
-				)
+				HighStatement::Code { instructions, semicolon } => {
+					for instruction in instructions.iter() {
+						if instruction.span().contains_lsp_position(pos) {
+							break 'token_thingy Some(TokenThingy::Instruction(instruction));
+						}
+					}
+					if semicolon.is_lsp_position(pos) {
+						break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
+					}
+				},
+				HighStatement::Empty { semicolon } => {
+					if semicolon.is_lsp_position(pos) {
+						break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
+					}
+				},
 			}
-		);
-		let range = statement.span().to_lsp_positions();
+			None
+		};
+		let statement_span = statement.span();
+		let statement_one_based_line_range = statement.span().one_based_line_range();
+		let (span, documentation) = match token_thingy {
+			None => return Ok(None),
+			Some(TokenThingy::Semicolon(pos)) => {
+				let documentation = format!(
+					"{}\n\n{}",
+					match statement {
+						HighStatement::Empty { .. } => "Empty statement".to_string(),
+						HighStatement::Code { ref instructions, .. } =>
+							format!("Code statement of {} insructions", instructions.len()),
+					},
+					if statement_one_based_line_range.0 == statement_one_based_line_range.1 {
+						format!("On line {}", statement_one_based_line_range.0)
+					} else {
+						format!(
+							"On lines {}-{}",
+							statement_one_based_line_range.0, statement_one_based_line_range.1
+						)
+					}
+				);
+				(statement_span, documentation)
+			},
+			Some(TokenThingy::Instruction(instruction)) => {
+				let documentation = (match instruction {
+					HighInstruction::IntegerLiteral(_) => "Integer literal",
+					HighInstruction::CharacterLiteral(_) => "Character literal",
+					HighInstruction::StringLiteral(_) => "String literal",
+					HighInstruction::ExplicitKeyword(_) => "Explicit keyword",
+				})
+				.to_string();
+				(instruction.span().clone(), documentation)
+			},
+		};
+		let range = span.to_lsp_positions();
 		let highlight_range = Range {
 			start: Position {
 				line: range.start.zero_based_line_number,
@@ -214,6 +256,7 @@ impl LanguageServer for Backend {
 				character: range.end.index_in_bytes_in_line,
 			},
 		};
+		let bit_of_code = span.as_str();
 		Ok(Some(Hover {
 			contents: HoverContents::Markup(MarkupContent {
 				kind: MarkupKind::Markdown,
