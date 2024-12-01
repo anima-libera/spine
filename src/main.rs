@@ -6,6 +6,8 @@ mod asm_test;
 mod elf;
 mod imm;
 mod lang;
+#[cfg(test)]
+mod lang_test;
 #[cfg(feature = "lsp")]
 mod lsp;
 
