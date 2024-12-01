@@ -6,13 +6,11 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use crate::lang::{
-	parse_to_ast, AstProgram, AstStatement, LineStartTable, LspPosition, SourceCode,
-};
+use crate::lang::{parse, HighProgram, HighStatement, LineStartTable, LspPosition, SourceCode};
 
 struct SourceFileData {
 	source: Arc<SourceCode>,
-	ast: AstProgram,
+	ast: HighProgram,
 }
 
 struct Backend {
@@ -60,7 +58,7 @@ impl LanguageServer for Backend {
 	async fn did_open(&self, params: DidOpenTextDocumentParams) {
 		let source_file_path = params.text_document.uri.to_file_path().unwrap();
 		let source = Arc::new(SourceCode::from_file(&source_file_path));
-		let ast = parse_to_ast(Arc::clone(&source));
+		let ast = parse(Arc::clone(&source));
 		let source_file = SourceFileData { source, ast };
 		self
 			.source_files
@@ -77,7 +75,7 @@ impl LanguageServer for Backend {
 		let source_text = params.content_changes.first().unwrap().text.clone();
 		let name = source_file_path.to_str().unwrap().to_string();
 		let source = Arc::new(SourceCode::from_string(source_text, name));
-		let ast = parse_to_ast(Arc::clone(&source));
+		let ast = parse(Arc::clone(&source));
 		let source_file = SourceFileData { source, ast };
 		self
 			.source_files
@@ -177,7 +175,7 @@ impl LanguageServer for Backend {
 		let pos = params.text_document_position_params.position;
 		let statement = 'statement_search: {
 			for statement in source_file.ast.statements.iter() {
-				if statement.span.contains_lsp_position(LspPosition {
+				if statement.span().contains_lsp_position(LspPosition {
 					zero_based_line_number: pos.line,
 					index_in_bytes_in_line: pos.character,
 				}) {
@@ -186,13 +184,14 @@ impl LanguageServer for Backend {
 			}
 			return Ok(None);
 		};
-		let bit_of_code = statement.span.as_str();
-		let one_based_line_range = statement.span.one_based_line_range();
+		let span = statement.span();
+		let bit_of_code = span.as_str();
+		let one_based_line_range = statement.span().one_based_line_range();
 		let documentation = format!(
 			"{}\n\n{}",
-			match statement.specific_statement {
-				AstStatement::Empty => "Empty statement".to_string(),
-				AstStatement::Code { ref instructions } =>
+			match statement {
+				HighStatement::Empty { .. } => "Empty statement".to_string(),
+				HighStatement::Code { ref instructions, .. } =>
 					format!("Code statement of {} insructions", instructions.len()),
 			},
 			if one_based_line_range.0 == one_based_line_range.1 {
@@ -204,7 +203,7 @@ impl LanguageServer for Backend {
 				)
 			}
 		);
-		let range = statement.span.to_lsp_positions();
+		let range = statement.span().to_lsp_positions();
 		let highlight_range = Range {
 			start: Position {
 				line: range.start.zero_based_line_number,

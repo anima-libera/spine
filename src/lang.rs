@@ -89,7 +89,7 @@ impl LineStartTable {
 /// - Peeking does not advance the reading head.
 /// - Cloning allows to pop the clone without moving the original.
 #[derive(Clone)]
-struct SourceCodeReader {
+struct Reader {
 	source: Arc<SourceCode>,
 	/// The position of the next character that will be popped.
 	///
@@ -101,12 +101,12 @@ struct SourceCodeReader {
 	prev: Option<PosSimple>,
 }
 
-impl SourceCodeReader {
-	fn new(source: Arc<SourceCode>) -> SourceCodeReader {
+impl Reader {
+	fn new(source: Arc<SourceCode>) -> Reader {
 		let next = Pos::first_character(Arc::clone(&source))
 			.as_ref()
 			.map(Pos::without_source);
-		SourceCodeReader { source, next, prev: None }
+		Reader { source, next, prev: None }
 	}
 
 	/// Position of the previously popped character.
@@ -191,7 +191,7 @@ impl SourceCodeReader {
 	/// so the reader does not advance the reading (notice how this does not mutate `self`)
 	/// while `f` can advance their reader to look ahead
 	/// in ways that are not possible with simple peeking.
-	fn look_ahead<T>(&self, f: impl FnOnce(SourceCodeReader) -> T) -> T {
+	fn look_ahead<T>(&self, f: impl FnOnce(Reader) -> T) -> T {
 		f(self.clone())
 	}
 
@@ -300,7 +300,7 @@ impl Pos {
 		self.clone().one_char_span().extend_to(other)
 	}
 
-	fn span_to_prev(&self, reader: &SourceCodeReader) -> Span {
+	fn span_to_prev(&self, reader: &Reader) -> Span {
 		self.span_to(&reader.prev_pos().unwrap())
 	}
 }
@@ -453,6 +453,7 @@ impl Span {
 	}
 }
 
+/// Integer literal token, like `41` or `0x6a`.
 #[derive(Debug)]
 pub(crate) struct IntegerLiteral {
 	pub(crate) span: Span,
@@ -460,6 +461,7 @@ pub(crate) struct IntegerLiteral {
 	pub(crate) value: i64,
 }
 
+/// Character literal token, like `'a'` or `'\n'`.
 #[derive(Debug)]
 pub(crate) struct CharacterLiteral {
 	pub(crate) span: Span,
@@ -467,6 +469,7 @@ pub(crate) struct CharacterLiteral {
 	pub(crate) value: char,
 }
 
+/// String literal token, like `"awa"`.
 #[derive(Debug)]
 pub(crate) struct StringLiteral {
 	pub(crate) span: Span,
@@ -474,6 +477,9 @@ pub(crate) struct StringLiteral {
 	pub(crate) value: String,
 }
 
+/// An explicit keyword starts with `kw` in the code (like `kwexit`)
+/// and serves as an internal compiler feature that is not intended
+/// to be used by a Spine user when proper syntaxes and features come out.
 #[derive(Debug)]
 pub(crate) enum ExplicitKeywordWhich {
 	/// Pops an i64 and prints the ASCII character it represents.
@@ -488,6 +494,7 @@ pub(crate) enum ExplicitKeywordWhich {
 	Exit,
 }
 
+/// Explicit keyword token, like `kwexit`.
 #[derive(Debug)]
 pub(crate) struct ExplicitKeyword {
 	pub(crate) span: Span,
@@ -513,26 +520,26 @@ enum Token {
 	CharacterLiteral(CharacterLiteral),
 	StringLiteral(StringLiteral),
 	ExplicitKeyword(ExplicitKeyword),
-	Semicolon(Span),
+	Semicolon(Pos),
 	WhitespaceAndComments(WhitespaceAndComments),
 }
 
 impl Token {
-	fn span(&self) -> &Span {
+	fn span(&self) -> Span {
 		match self {
-			Token::IntegerLiteral(t) => &t.span,
-			Token::CharacterLiteral(t) => &t.span,
-			Token::StringLiteral(t) => &t.span,
-			Token::ExplicitKeyword(t) => &t.span,
-			Token::Semicolon(span) => span,
-			Token::WhitespaceAndComments(t) => &t.span,
+			Token::IntegerLiteral(t) => t.span.clone(),
+			Token::CharacterLiteral(t) => t.span.clone(),
+			Token::StringLiteral(t) => t.span.clone(),
+			Token::ExplicitKeyword(t) => t.span.clone(),
+			Token::Semicolon(pos) => pos.clone().one_char_span(),
+			Token::WhitespaceAndComments(t) => t.span.clone(),
 		}
 	}
 }
 
 /// Assumes that we are in a string or character literal,
 /// and that the next character is the `\` that starts a character escape.
-fn parse_character_escape(reader: &mut SourceCodeReader) -> CharacterEscape {
+fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
 	let start = reader.next_pos().unwrap();
 	assert_eq!(reader.pop(), Some('\\'));
 	let hex_digit_to_value = |hex_digit| match hex_digit {
@@ -596,8 +603,9 @@ fn parse_character_escape(reader: &mut SourceCodeReader) -> CharacterEscape {
 	CharacterEscape { span, produced_character, representation_in_source }
 }
 
-/// Assumes that we are at the beginning of an integer literal.
-fn parse_maybe_radix_prefix(reader: &mut SourceCodeReader) -> Option<RadixPrefix> {
+/// Assumes that we are at the beginning of an integer literal,
+/// the next character is the first character of that integer literal.
+fn parse_maybe_radix_prefix(reader: &mut Reader) -> Option<RadixPrefix> {
 	let start = reader.next_pos().unwrap();
 	if !reader.skip_if_eq('0') {
 		// Radix prefixes all start by `0`.
@@ -616,13 +624,13 @@ fn parse_maybe_radix_prefix(reader: &mut SourceCodeReader) -> Option<RadixPrefix
 		// `0x` radix prefix
 		'x' | 'X' => Some(RadixPrefix {
 			span: start.span_to_prev(reader),
-			kind: RadixPrefixKind::Hexadecimal,
+			kind: RadixPrefixKindAndValue::Hexadecimal,
 			uppercase: radix_letter.is_uppercase(),
 		}),
 		// `0b` radix prefix
 		'b' | 'B' => Some(RadixPrefix {
 			span: start.span_to_prev(reader),
-			kind: RadixPrefixKind::Binary,
+			kind: RadixPrefixKindAndValue::Binary,
 			uppercase: radix_letter.is_uppercase(),
 		}),
 		// `0r{8}` sort of radix prefix (that can contain any supported radix number)
@@ -635,7 +643,7 @@ fn parse_maybe_radix_prefix(reader: &mut SourceCodeReader) -> Option<RadixPrefix
 			let radix_number = radix_number_span.as_str().parse().unwrap();
 			Some(RadixPrefix {
 				span: start.span_to_prev(reader),
-				kind: RadixPrefixKind::Arbitrary(radix_number),
+				kind: RadixPrefixKindAndValue::Arbitrary(radix_number),
 				uppercase: radix_letter.is_uppercase(),
 			})
 		},
@@ -643,18 +651,18 @@ fn parse_maybe_radix_prefix(reader: &mut SourceCodeReader) -> Option<RadixPrefix
 	}
 }
 
-fn will_parse_integer_literal(reader: &SourceCodeReader) -> bool {
+fn will_parse_integer_literal(reader: &Reader) -> bool {
 	reader.peek().is_some_and(|c| c.is_ascii_digit())
 }
 
-fn parse_integer_literal(reader: &mut SourceCodeReader) -> Token {
+fn parse_integer_literal(reader: &mut Reader) -> Token {
 	let start = reader.next_pos().unwrap();
 	let radix_prefix = parse_maybe_radix_prefix(reader);
 	if let Some(radix_prefix) = radix_prefix {
 		// The number has a radix prefix, like in `0x6af2` or `0b10101`.
 		// We have to get the span of the actual number part (like `6af2` or `10101`)
 		// so that we can parse it (given the radix number).
-		let radix_number = radix_prefix.kind.radix();
+		let radix_number = radix_prefix.kind.radix_number();
 		if 16 < radix_number {
 			unimplemented!(); // yet
 		}
@@ -672,11 +680,11 @@ fn parse_integer_literal(reader: &mut SourceCodeReader) -> Token {
 	}
 }
 
-fn will_parse_character_literal(reader: &SourceCodeReader) -> bool {
+fn will_parse_character_literal(reader: &Reader) -> bool {
 	reader.peek() == Some('\'')
 }
 
-fn parse_character_literal(reader: &mut SourceCodeReader) -> Token {
+fn parse_character_literal(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
 	assert_eq!(reader.pop(), Some('\''));
 	let character_escape = (reader.peek() == Some('\\')).then(|| parse_character_escape(reader));
@@ -690,11 +698,11 @@ fn parse_character_literal(reader: &mut SourceCodeReader) -> Token {
 	Token::CharacterLiteral(CharacterLiteral { span, character_escape, value: character })
 }
 
-fn will_parse_string_literal(reader: &SourceCodeReader) -> bool {
+fn will_parse_string_literal(reader: &Reader) -> bool {
 	reader.peek() == Some('\"')
 }
 
-fn parse_string_literal(reader: &mut SourceCodeReader) -> Token {
+fn parse_string_literal(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
 	assert_eq!(reader.pop(), Some('\"'));
 	let mut string = String::new();
@@ -715,11 +723,11 @@ fn parse_string_literal(reader: &mut SourceCodeReader) -> Token {
 	Token::StringLiteral(StringLiteral { span, character_escapes, value: string })
 }
 
-fn will_parse_word(reader: &SourceCodeReader) -> bool {
+fn will_parse_word(reader: &Reader) -> bool {
 	reader.peek().is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
-fn parse_word(reader: &mut SourceCodeReader) -> Token {
+fn parse_word(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
 	reader.skip_while(|c| c.is_ascii_alphanumeric() || c == '_');
 	let span = first.span_to_prev(reader);
@@ -739,11 +747,11 @@ fn parse_word(reader: &mut SourceCodeReader) -> Token {
 	}
 }
 
-fn will_parse_whitespace_and_comments(reader: &SourceCodeReader) -> bool {
+fn will_parse_whitespace_and_comments(reader: &Reader) -> bool {
 	reader.peek().is_some_and(|c| c.is_whitespace()) || reader.ahead_is("--")
 }
 
-fn parse_whitespace_and_comments(reader: &mut SourceCodeReader) -> Token {
+fn parse_whitespace_and_comments(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
 	let mut comments = vec![];
 	loop {
@@ -773,9 +781,12 @@ fn parse_whitespace_and_comments(reader: &mut SourceCodeReader) -> Token {
 }
 
 /// Consumes and tokenizes the next token.
-fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
-	reader.peek()?;
-	Some(if will_parse_whitespace_and_comments(reader) {
+///
+/// There it is, the core of the tokenizer.
+fn pop_token_from_reader(reader: &mut Reader) -> Option<Token> {
+	Some(if reader.peek().is_none() {
+		return None;
+	} else if will_parse_whitespace_and_comments(reader) {
 		parse_whitespace_and_comments(reader)
 	} else if will_parse_integer_literal(reader) {
 		parse_integer_literal(reader)
@@ -785,17 +796,17 @@ fn pop_token_from_reader(reader: &mut SourceCodeReader) -> Option<Token> {
 		parse_string_literal(reader)
 	} else if will_parse_word(reader) {
 		parse_word(reader)
-	} else if reader.peek() == Some(';') {
-		reader.skip();
-		let pos = reader.prev_pos().unwrap();
-		Token::Semicolon(pos.one_char_span())
+	} else if reader.skip_if_eq(';') {
+		Token::Semicolon(reader.prev_pos().unwrap())
 	} else {
-		let character = reader.peek().unwrap();
-		panic!("failed to tokenize token that starts with char {character}")
+		panic!(
+			"failed to tokenize token that starts with char {}",
+			reader.peek().unwrap()
+		)
 	})
 }
 
-fn pop_token_from_reader_ignoring_comments(reader: &mut SourceCodeReader) -> Option<Token> {
+fn pop_token_from_reader_ignoring_comments(reader: &mut Reader) -> Option<Token> {
 	loop {
 		match pop_token_from_reader(reader) {
 			Some(Token::WhitespaceAndComments(_)) => continue,
@@ -805,13 +816,13 @@ fn pop_token_from_reader_ignoring_comments(reader: &mut SourceCodeReader) -> Opt
 }
 
 struct Tokenizer {
-	reader: SourceCodeReader,
+	reader: Reader,
 	/// Peeking tokens queues them, so that they are not tokenized again when popped.
 	queue: VecDeque<Token>,
 }
 
 impl Tokenizer {
-	fn new(reader: SourceCodeReader) -> Tokenizer {
+	fn new(reader: Reader) -> Tokenizer {
 		Tokenizer { reader, queue: VecDeque::new() }
 	}
 
@@ -837,74 +848,110 @@ impl Tokenizer {
 }
 
 #[derive(Debug)]
-pub(crate) struct AstProgram {
+pub(crate) struct HighProgram {
 	pub(crate) source: Arc<SourceCode>,
-	pub(crate) statements: Vec<AstStatementAny>,
+	pub(crate) statements: Vec<HighStatement>,
 }
 
 #[derive(Debug)]
-pub(crate) struct AstStatementAny {
-	// TODO: Add a field for doc in attached doc comment
-	// (attached doc either starts on lines before, or is line comment on same line just after)
-	pub(crate) span: Span,
-	pub(crate) terminating_semicolon: Option<Span>,
-	pub(crate) specific_statement: AstStatement,
-}
-
-#[derive(Debug)]
-pub(crate) enum AstStatement {
+pub(crate) enum HighStatement {
 	/// This statement contains code (computer programming computation waow)
 	/// that actually does something when executed (so NOT a declarative statement).
-	Code { instructions: Vec<AstInstruction> },
+	Code { instructions: Vec<HighInstruction>, semicolon: Pos },
 	/// A semicolon with nothing between it and the previous one or the start of file.
 	/// It is valid syntax and does nothing.
-	Empty,
+	Empty { semicolon: Pos },
+}
+
+impl HighStatement {
+	pub(crate) fn span(&self) -> Span {
+		match self {
+			HighStatement::Code { instructions, semicolon } => {
+				if let Some(first_instruction) = instructions.first() {
+					first_instruction.span().clone().extend_to(semicolon)
+				} else {
+					semicolon.clone().one_char_span()
+				}
+			},
+			Self::Empty { semicolon } => semicolon.clone().one_char_span(),
+		}
+	}
 }
 
 #[derive(Debug)]
-pub(crate) enum AstInstruction {
+pub(crate) enum HighInstruction {
 	IntegerLiteral(IntegerLiteral),
 	CharacterLiteral(CharacterLiteral),
 	StringLiteral(StringLiteral),
 	ExplicitKeyword(ExplicitKeyword),
 }
 
-impl AstInstruction {
+impl HighInstruction {
 	fn span(&self) -> &Span {
 		match self {
-			AstInstruction::IntegerLiteral(t) => &t.span,
-			AstInstruction::CharacterLiteral(t) => &t.span,
-			AstInstruction::StringLiteral(t) => &t.span,
-			AstInstruction::ExplicitKeyword(t) => &t.span,
+			HighInstruction::IntegerLiteral(t) => &t.span,
+			HighInstruction::CharacterLiteral(t) => &t.span,
+			HighInstruction::StringLiteral(t) => &t.span,
+			HighInstruction::ExplicitKeyword(t) => &t.span,
+		}
+	}
+
+	/// Order:
+	/// - If operand types are `[A, B]` then it means `B` will be popped before `A`.
+	/// - If return types are `[A, B]` then it means `A` will be pushed before `B`.
+	fn operand_and_return_types(&self) -> (Vec<SpineType>, Vec<SpineType>) {
+		match self {
+			HighInstruction::IntegerLiteral(_) => (vec![], vec![SpineType::I64]),
+			HighInstruction::CharacterLiteral(_) => (vec![], vec![SpineType::I64]),
+			HighInstruction::StringLiteral(_) => (vec![], vec![SpineType::DataAddr, SpineType::I64]),
+			HighInstruction::ExplicitKeyword(ExplicitKeyword { keyword, .. }) => {
+				match keyword.as_ref().unwrap() {
+					ExplicitKeywordWhich::PrintChar => (vec![SpineType::I64], vec![]),
+					ExplicitKeywordWhich::PrintStr => {
+						(vec![SpineType::DataAddr, SpineType::I64], vec![])
+					},
+					ExplicitKeywordWhich::Add => {
+						(vec![SpineType::I64, SpineType::I64], vec![SpineType::I64])
+					},
+					ExplicitKeywordWhich::Exit => (vec![], vec![]),
+				}
+			},
 		}
 	}
 }
 
+/// Radix prefix, such as `0x` or `0B` or `0r{12}`.
 #[derive(Debug)]
 pub(crate) struct RadixPrefix {
 	pub(crate) span: Span,
-	pub(crate) kind: RadixPrefixKind,
+	pub(crate) kind: RadixPrefixKindAndValue,
 	/// `0x` or `0X`
 	pub(crate) uppercase: bool,
 }
 
+/// The kind of radix prefix, and the radix number value.
 #[derive(Debug)]
-pub(crate) enum RadixPrefixKind {
+pub(crate) enum RadixPrefixKindAndValue {
 	Hexadecimal,    // 0x
 	Binary,         // 0b
 	Arbitrary(u32), // 0r{radix}
 }
 
-impl RadixPrefixKind {
-	fn radix(&self) -> u32 {
+impl RadixPrefixKindAndValue {
+	/// The radix number,
+	/// ie the base used to represent the number in the integer literal that follows.
+	fn radix_number(&self) -> u32 {
 		match self {
-			RadixPrefixKind::Hexadecimal => 16,
-			RadixPrefixKind::Binary => 2,
-			RadixPrefixKind::Arbitrary(radix) => *radix,
+			RadixPrefixKindAndValue::Hexadecimal => 16,
+			RadixPrefixKindAndValue::Binary => 2,
+			RadixPrefixKindAndValue::Arbitrary(radix) => *radix,
 		}
 	}
 }
 
+/// A character in a charater literal or in a string literal
+/// can be represented by itself (such as `a`), or by a character escape (such as `\n`).
+/// This holds the information about a parsed character escape.
 #[derive(Debug)]
 pub(crate) struct CharacterEscape {
 	pub(crate) span: Span,
@@ -915,50 +962,46 @@ pub(crate) struct CharacterEscape {
 	pub(crate) representation_in_source: String,
 }
 
-pub(crate) fn parse_to_ast(source: Arc<SourceCode>) -> AstProgram {
-	let reader = SourceCodeReader::new(Arc::clone(&source));
+pub(crate) fn parse(source: Arc<SourceCode>) -> HighProgram {
+	let reader = Reader::new(Arc::clone(&source));
 	let mut tokenizer = Tokenizer::new(reader);
 
 	let mut statements = vec![];
-	while tokenizer.peek_token().is_some() {
+	'statements: while tokenizer.peek_token().is_some() {
 		let mut instructions = vec![];
-		let semicolon_span = loop {
+		let semicolon = 'instructions: loop {
 			match tokenizer.pop_token() {
 				Some(Token::IntegerLiteral(integer_literal)) => {
-					instructions.push(AstInstruction::IntegerLiteral(integer_literal));
+					instructions.push(HighInstruction::IntegerLiteral(integer_literal));
 				},
 				Some(Token::CharacterLiteral(character_literal)) => {
-					instructions.push(AstInstruction::CharacterLiteral(character_literal));
+					instructions.push(HighInstruction::CharacterLiteral(character_literal));
 				},
 				Some(Token::StringLiteral(string_literal)) => {
-					instructions.push(AstInstruction::StringLiteral(string_literal))
+					instructions.push(HighInstruction::StringLiteral(string_literal))
 				},
 				Some(Token::ExplicitKeyword(explicit_keyword)) => {
-					instructions.push(AstInstruction::ExplicitKeyword(explicit_keyword));
+					instructions.push(HighInstruction::ExplicitKeyword(explicit_keyword));
 				},
 				Some(Token::WhitespaceAndComments(_)) => {},
-				Some(Token::Semicolon(span)) => break Some(span),
-				None => break None,
+				Some(Token::Semicolon(span)) => break 'instructions span,
+				None => {
+					if instructions.is_empty() {
+						break 'statements;
+					} else {
+						panic!("missing terminating semicolon for last statement");
+					}
+				},
 			};
 		};
-		let span = match (instructions.first(), semicolon_span.clone()) {
-			(Some(first_instruction), Some(semicolon_span)) => {
-				first_instruction.span().clone().combine(semicolon_span)
-			},
-			(Some(first_instruction), None) => first_instruction.span().clone(),
-			(None, Some(semicolon_span)) => semicolon_span,
-			(None, None) => unreachable!(),
-		};
-		let specific_statement = if instructions.is_empty() {
-			AstStatement::Empty
+		let statement = if instructions.is_empty() {
+			HighStatement::Empty { semicolon }
 		} else {
-			AstStatement::Code { instructions }
+			HighStatement::Code { instructions, semicolon }
 		};
-		let statement_any =
-			AstStatementAny { span, terminating_semicolon: semicolon_span, specific_statement };
-		statements.push(statement_any);
+		statements.push(statement);
 	}
-	AstProgram { source: Arc::clone(&source), statements }
+	HighProgram { source: Arc::clone(&source), statements }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -982,8 +1025,9 @@ impl SpineValue {
 	}
 }
 
+/// Low level instruction.
 #[derive(Debug)]
-enum SpineInstr {
+enum LowInstr {
 	PushConst(SpineValue),
 	PushString(String),
 	PopI64AndPrintAsChar,
@@ -992,128 +1036,118 @@ enum SpineInstr {
 	Exit,
 }
 
-impl SpineInstr {
+impl LowInstr {
 	/// Order:
 	/// - If operand types are `[A, B]` then it means `B` will be popped before `A`.
 	/// - If return types are `[A, B]` then it means `A` will be pushed before `B`.
 	fn operand_and_return_types(&self) -> (Vec<SpineType>, Vec<SpineType>) {
 		match self {
-			SpineInstr::PushConst(value) => (vec![], vec![value.get_type()]),
-			SpineInstr::PushString(_) => (vec![], vec![SpineType::DataAddr, SpineType::I64]),
-			SpineInstr::PopI64AndPrintAsChar => (vec![SpineType::I64], vec![]),
-			SpineInstr::PopI64AndPtrAndPrintAsString => {
+			LowInstr::PushConst(value) => (vec![], vec![value.get_type()]),
+			LowInstr::PushString(_) => (vec![], vec![SpineType::DataAddr, SpineType::I64]),
+			LowInstr::PopI64AndPrintAsChar => (vec![SpineType::I64], vec![]),
+			LowInstr::PopI64AndPtrAndPrintAsString => {
 				(vec![SpineType::DataAddr, SpineType::I64], vec![])
 			},
-			SpineInstr::AddI64AndI64 => (vec![SpineType::I64, SpineType::I64], vec![SpineType::I64]),
-			SpineInstr::Exit => (vec![], vec![]),
+			LowInstr::AddI64AndI64 => (vec![SpineType::I64, SpineType::I64], vec![SpineType::I64]),
+			LowInstr::Exit => (vec![], vec![]),
 		}
 	}
 }
 
+/// Low level statement.
 #[derive(Debug)]
-enum SpineStatement {
+enum LowStatement {
 	Code {
 		/// In the order that they are executed, so the reverse of the order in the source code.
-		instrs: Vec<SpineInstr>,
+		instrs: Vec<LowInstr>,
 	},
 }
 
-pub(crate) struct SpineProgram {
-	statements: Vec<SpineStatement>,
+/// Low level program.
+pub(crate) struct LowProgram {
+	statements: Vec<LowStatement>,
 }
 
-pub(crate) fn parse(source: Arc<SourceCode>) -> SpineProgram {
-	let reader = SourceCodeReader::new(source);
-	let mut tokenizer = Tokenizer::new(reader);
-
-	let mut statements = vec![];
-	while tokenizer.peek_token().is_some() {
-		let mut src_order_instrs = vec![];
-		loop {
-			match tokenizer.pop_token() {
-				Some(Token::IntegerLiteral(IntegerLiteral { span, value, .. })) => {
-					src_order_instrs.push(SpineInstr::PushConst(SpineValue::I64(value)));
-				},
-				Some(Token::CharacterLiteral(CharacterLiteral { span, value, .. })) => {
-					src_order_instrs.push(SpineInstr::PushConst(SpineValue::I64(value as i64)));
-				},
-				Some(Token::StringLiteral(StringLiteral { span, value, .. })) => {
-					src_order_instrs.push(SpineInstr::PushString(value));
-				},
-				Some(Token::ExplicitKeyword(ExplicitKeyword { span, keyword })) => {
-					match keyword.unwrap() {
-						ExplicitKeywordWhich::PrintChar => {
-							src_order_instrs.push(SpineInstr::PopI64AndPrintAsChar);
-						},
-						ExplicitKeywordWhich::PrintStr => {
-							src_order_instrs.push(SpineInstr::PopI64AndPtrAndPrintAsString);
-						},
-						ExplicitKeywordWhich::Add => {
-							src_order_instrs.push(SpineInstr::AddI64AndI64);
-						},
-						ExplicitKeywordWhich::Exit => {
-							src_order_instrs.push(SpineInstr::Exit);
-						},
+pub(crate) fn compile_to_low_level(program: &HighProgram) -> LowProgram {
+	let statements = program
+		.statements
+		.iter()
+		.filter_map(|statement| match statement {
+			HighStatement::Empty { .. } => None,
+			HighStatement::Code { instructions, .. } => Some({
+				// Typecheking.
+				let mut excpected_type_stack = vec![];
+				for instr in instructions.iter() {
+					let (mut operand_types, mut return_types) = instr.operand_and_return_types();
+					while let Some(top_return_type) = return_types.pop() {
+						if let Some(top_excpected_type) = excpected_type_stack.pop() {
+							assert_eq!(top_excpected_type, top_return_type, "type mismatch");
+						} else {
+							panic!(
+								"a value of type {:?} is pushed but there is no instruction to pop it",
+								top_return_type
+							);
+						}
 					}
-				},
-				Some(Token::WhitespaceAndComments(_)) => {},
-				Some(Token::Semicolon(span)) => break,
-				None => break,
-			}
-		}
-
-		// Typecheking.
-		let mut excpected_type_stack = vec![];
-		for instr in src_order_instrs.iter() {
-			let (mut operand_types, mut return_types) = instr.operand_and_return_types();
-			while let Some(top_return_type) = return_types.pop() {
-				if let Some(top_excpected_type) = excpected_type_stack.pop() {
-					assert_eq!(top_excpected_type, top_return_type, "type mismatch");
-				} else {
-					panic!(
-						"a value of type {:?} is pushed but there is no instruction to pop it",
-						top_return_type
-					);
+					excpected_type_stack.append(&mut operand_types);
 				}
-			}
-			excpected_type_stack.append(&mut operand_types);
-		}
-		assert!(
-			excpected_type_stack.is_empty(),
-			"values of types {:?} are expected but there is no instruction to push them",
-			excpected_type_stack,
-		);
+				assert!(
+					excpected_type_stack.is_empty(),
+					"values of types {:?} are expected but there is no instruction to push them",
+					excpected_type_stack,
+				);
 
-		let instrs = {
-			src_order_instrs.reverse();
-			src_order_instrs
-		};
-		statements.push(SpineStatement::Code { instrs });
-	}
+				let instrs: Vec<_> = instructions
+					.iter()
+					.rev()
+					.map(|instruction| match instruction {
+						HighInstruction::IntegerLiteral(IntegerLiteral { value, .. }) => {
+							LowInstr::PushConst(SpineValue::I64(*value))
+						},
+						HighInstruction::CharacterLiteral(CharacterLiteral { value, .. }) => {
+							LowInstr::PushConst(SpineValue::I64(*value as i64))
+						},
+						HighInstruction::StringLiteral(StringLiteral { value, .. }) => {
+							LowInstr::PushString(value.clone())
+						},
+						HighInstruction::ExplicitKeyword(ExplicitKeyword { keyword, .. }) => {
+							match keyword.as_ref().unwrap() {
+								ExplicitKeywordWhich::PrintChar => LowInstr::PopI64AndPrintAsChar,
+								ExplicitKeywordWhich::PrintStr => LowInstr::PopI64AndPtrAndPrintAsString,
+								ExplicitKeywordWhich::Add => LowInstr::AddI64AndI64,
+								ExplicitKeywordWhich::Exit => LowInstr::Exit,
+							}
+						},
+					})
+					.collect();
+				LowStatement::Code { instrs }
+			}),
+		})
+		.collect();
 
-	SpineProgram { statements }
+	LowProgram { statements }
 }
 
-pub(crate) fn compile_to_binary(program: SpineProgram) -> Binary {
+pub(crate) fn compile_to_binary(program: &LowProgram) -> Binary {
 	let mut bin = Binary::new();
 
 	use AsmInstr::*;
 
 	for statement in program.statements.iter() {
 		match statement {
-			SpineStatement::Code { instrs } => {
+			LowStatement::Code { instrs } => {
 				for instr in instrs.iter() {
 					match instr {
-						SpineInstr::PushConst(SpineValue::I64(value)) => {
+						LowInstr::PushConst(SpineValue::I64(value)) => {
 							bin.asm_instrs.extend([
 								MovImmToReg64 { imm_src: Imm::whatever_raw(*value), reg_dst: Reg64::Rax },
 								PushReg64 { reg_src: Reg64::Rax },
 							]);
 						},
-						SpineInstr::PushConst(SpineValue::DataAddr { .. }) => {
+						LowInstr::PushConst(SpineValue::DataAddr { .. }) => {
 							unimplemented!()
 						},
-						SpineInstr::PushString(string) => {
+						LowInstr::PushString(string) => {
 							let offset_in_data_segment = bin.data_bytes.len() as u64;
 							let string_len_in_bytes = string.len() as i64;
 							bin.data_bytes.extend(string.as_bytes());
@@ -1130,7 +1164,7 @@ pub(crate) fn compile_to_binary(program: SpineProgram) -> Binary {
 								PushReg64 { reg_src: Reg64::Rax },
 							]);
 						},
-						SpineInstr::PopI64AndPrintAsChar => {
+						LowInstr::PopI64AndPrintAsChar => {
 							bin.asm_instrs.extend([
 								// Write(message) syscall
 								MovImmToReg64 {
@@ -1152,7 +1186,7 @@ pub(crate) fn compile_to_binary(program: SpineProgram) -> Binary {
 								PopToReg64 { reg_dst: Reg64::Rsi },
 							]);
 						},
-						SpineInstr::PopI64AndPtrAndPrintAsString => {
+						LowInstr::PopI64AndPtrAndPrintAsString => {
 							bin.asm_instrs.extend([
 								// Write(message) syscall
 								MovImmToReg64 {
@@ -1170,7 +1204,7 @@ pub(crate) fn compile_to_binary(program: SpineProgram) -> Binary {
 								PopToReg64 { reg_dst: Reg64::Rsi },
 							]);
 						},
-						SpineInstr::AddI64AndI64 => {
+						LowInstr::AddI64AndI64 => {
 							bin.asm_instrs.extend([
 								PopToReg64 { reg_dst: Reg64::Rax },
 								PopToReg64 { reg_dst: Reg64::Rbx },
@@ -1178,7 +1212,7 @@ pub(crate) fn compile_to_binary(program: SpineProgram) -> Binary {
 								PushReg64 { reg_src: Reg64::Rax },
 							]);
 						},
-						SpineInstr::Exit => {
+						LowInstr::Exit => {
 							bin.asm_instrs.extend([
 								// Exit(0) syscall
 								MovImmToReg64 {

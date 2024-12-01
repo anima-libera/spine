@@ -12,7 +12,7 @@ mod lsp;
 use std::sync::Arc;
 
 use elf::chmod_x;
-use lang::{compile_to_binary, parse, parse_to_ast, LineStartTable, SourceCode};
+use lang::{compile_to_binary, compile_to_low_level, parse, SourceCode};
 #[cfg(feature = "lsp")]
 use lsp::run_lsp;
 
@@ -105,19 +105,17 @@ fn main() {
 	// The good stuff starts here ^^
 
 	if verbose {
-		println!("Compiling to intermediate representation");
+		println!("Parsing to high level internal representation");
 	}
-	let program = parse(Arc::clone(&source_code));
+	let high_program = parse(Arc::clone(&source_code));
 	if verbose {
-		println!("Compiling to machine code");
+		println!("Compiling to low level internal representation");
 	}
-	let bin = compile_to_binary(program);
-
+	let low_program = compile_to_low_level(&high_program);
 	if verbose {
-		let ast = parse_to_ast(source_code);
-		dbg!(ast);
+		println!("Compiling to quasi machine code");
 	}
-
+	let bin = compile_to_binary(&low_program);
 	if verbose {
 		println!("Machine code:");
 		for byte in bin.code_segment_binary_machine_code() {
@@ -127,7 +125,7 @@ fn main() {
 	}
 
 	if verbose {
-		println!("Writing compiled binary to file \"{output_file_path}\"");
+		println!("Writing binary to file \"{output_file_path}\"");
 	}
 	std::fs::write(output_file_path, bin.to_binary()).unwrap();
 	chmod_x(output_file_path);
