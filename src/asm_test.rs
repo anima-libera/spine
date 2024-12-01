@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::asm::{AsmInstr, BaseSign, BaseSize, Reg64};
 use crate::elf::{chmod_x, Binary};
 use crate::imm::{Imm, Imm32, Imm64, Imm8, Raw32, Raw64, Raw8};
@@ -121,6 +123,10 @@ fn some_assembly_instructions() {
 	std::fs::write(dot_path, bin.to_binary()).unwrap();
 	chmod_x(dot_path);
 
+	// Waiting a bit makes sure that we do not get `ExecutableFileBusy` errors
+	// when executing the binary so soon after generating and chmoding it.
+	std::thread::sleep(Duration::from_millis(20));
+
 	let binary_execution_result = std::process::Command::new(dot_path).output().unwrap();
 	let binary_execution_output =
 		std::str::from_utf8(binary_execution_result.stdout.as_slice()).unwrap();
@@ -221,6 +227,10 @@ fn mov_imm_to_reg64_all_variants() {
 	let dot_path = "./test_binaries/binary_mov_imm_to_reg64_all_variants";
 	std::fs::write(dot_path, bin.to_binary()).unwrap();
 	chmod_x(dot_path);
+
+	// Waiting a bit makes sure that we do not get `ExecutableFileBusy` errors
+	// when executing the binary so soon after generating and chmoding it.
+	std::thread::sleep(Duration::from_millis(20));
 
 	let binary_execution_result = std::process::Command::new(dot_path).output().unwrap();
 	let binary_execution_output = binary_execution_result.stderr.as_slice();
@@ -396,6 +406,10 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 	let dot_path = "./test_binaries/binary_mov_deref_reg_64_to_reg_64_all_variants";
 	std::fs::write(dot_path, bin.to_binary()).unwrap();
 	chmod_x(dot_path);
+
+	// Waiting a bit makes sure that we do not get `ExecutableFileBusy` errors
+	// when executing the binary so soon after generating and chmoding it.
+	std::thread::sleep(Duration::from_millis(20));
 
 	let binary_execution_result = std::process::Command::new(dot_path).output().unwrap();
 	let binary_execution_output = binary_execution_result.stderr.as_slice();
