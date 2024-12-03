@@ -1,23 +1,27 @@
 -- Hello world!!
 kwprintstr "Hello, World!\n";
 
--- All of these print `a`, they all demonstrate different literal syntaxes.
-kwprintchar 'a';        -- character
-kwprintchar '\x61';     -- character with two-hexadecimal-digits ASCII escape
-kwprintchar '\u{61}';   -- character with hexadecimal-digits Unicode escape
-kwprintchar '\d{97}';   -- character with decimal-digits Unicode escape
-kwprintchar 97;         -- decimal
-kwprintchar 0x61;       -- hexadecimal
-kwprintchar 0b01100001; -- binary
-kwprintchar 0r{8}141;   -- arbitrary radix (here 8, so octal)
+{
+	-- All of these print `a`, they all demonstrate different literal syntaxes.
+	kwprintchar 'a';        -- character
+	kwprintchar '\x61';     -- character with two-hexadecimal-digits ASCII escape
+	kwprintchar '\u{61}';   -- character with hexadecimal-digits Unicode escape
+	kwprintchar '\d{97}';   -- character with decimal-digits Unicode escape
+	kwprintchar 97;         -- decimal
+	kwprintchar 0x61;       -- hexadecimal
+	kwprintchar 0b01100001; -- binary
+	kwprintchar 0r{8}141;   -- arbitrary radix (here 8, so octal)
 
-kwprintchar '\n';
+	kwprintchar '\n';
+}
 
 -- Can do this too!
 kwprintchar kwprintchar kwprintchar kwprintchar 'o' 'w' 'o' '\n';
 
 -- Empty statement, very useful >w<
 ;
+
+{;;;;;} -- Epic block statement
 
 --{ Block comment
     that can span multiple lines }

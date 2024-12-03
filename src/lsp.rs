@@ -179,16 +179,32 @@ impl LanguageServer for Backend {
 			zero_based_line_number: pos.line,
 			index_in_bytes_in_line: pos.character,
 		};
-		let statement = 'statement_search: {
-			for statement in source_file.high_program.statements.iter() {
+		fn statement_search(
+			statements: &[HighStatement],
+			pos: LspPosition,
+		) -> Option<&HighStatement> {
+			for statement in statements.iter() {
 				if statement.span().contains_lsp_position(pos) {
-					break 'statement_search statement;
+					if let HighStatement::Block { statements, curly_open, curly_close } = statement {
+						if curly_open.is_lsp_position(pos) || curly_close.is_lsp_position(pos) {
+							return Some(statement);
+						} else {
+							return statement_search(statements, pos);
+						}
+					} else {
+						return Some(statement);
+					}
 				}
 			}
+			None
+		}
+		let Some(statement) = statement_search(&source_file.high_program.statements, pos) else {
 			return Ok(None);
 		};
 		enum TokenThingy<'a> {
 			Semicolon(&'a Pos),
+			CurlyOpen(&'a Pos),
+			CurlyClose(&'a Pos),
 			Instruction(&'a HighInstruction),
 		}
 		let token_thingy = 'token_thingy: {
@@ -203,6 +219,14 @@ impl LanguageServer for Backend {
 						break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
 					}
 				},
+				HighStatement::Block { curly_open, curly_close, .. } => {
+					if curly_open.is_lsp_position(pos) {
+						break 'token_thingy Some(TokenThingy::CurlyOpen(curly_open));
+					}
+					if curly_close.is_lsp_position(pos) {
+						break 'token_thingy Some(TokenThingy::CurlyClose(curly_close));
+					}
+				},
 				HighStatement::Empty { semicolon } => {
 					if semicolon.is_lsp_position(pos) {
 						break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
@@ -215,13 +239,17 @@ impl LanguageServer for Backend {
 		let statement_one_based_line_range = statement.span().one_based_line_range();
 		let (span, documentation) = match token_thingy {
 			None => return Ok(None),
-			Some(TokenThingy::Semicolon(pos)) => {
+			Some(TokenThingy::Semicolon(_))
+			| Some(TokenThingy::CurlyOpen(_))
+			| Some(TokenThingy::CurlyClose(_)) => {
 				let documentation = format!(
 					"{}\n\n{}",
 					match statement {
 						HighStatement::Empty { .. } => "Empty statement".to_string(),
 						HighStatement::Code { ref instructions, .. } =>
 							format!("Code statement of {} insructions", instructions.len()),
+						HighStatement::Block { ref statements, .. } =>
+							format!("Block statement of {} statements", statements.len()),
 					},
 					if statement_one_based_line_range.0 == statement_one_based_line_range.1 {
 						format!("On line {}", statement_one_based_line_range.0)

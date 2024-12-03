@@ -528,6 +528,8 @@ enum Token {
 	StringLiteral(StringLiteral),
 	ExplicitKeyword(ExplicitKeyword),
 	Semicolon(Pos),
+	CurlyOpen(Pos),
+	CurlyClose(Pos),
 	WhitespaceAndComments(WhitespaceAndComments),
 }
 
@@ -539,6 +541,8 @@ impl Token {
 			Token::StringLiteral(t) => t.span.clone(),
 			Token::ExplicitKeyword(t) => t.span.clone(),
 			Token::Semicolon(pos) => pos.clone().one_char_span(),
+			Token::CurlyOpen(pos) => pos.clone().one_char_span(),
+			Token::CurlyClose(pos) => pos.clone().one_char_span(),
 			Token::WhitespaceAndComments(t) => t.span.clone(),
 		}
 	}
@@ -805,6 +809,10 @@ fn pop_token_from_reader(reader: &mut Reader) -> Option<Token> {
 		parse_word(reader)
 	} else if reader.skip_if_eq(';') {
 		Token::Semicolon(reader.prev_pos().unwrap())
+	} else if reader.skip_if_eq('{') {
+		Token::CurlyOpen(reader.prev_pos().unwrap())
+	} else if reader.skip_if_eq('}') {
+		Token::CurlyClose(reader.prev_pos().unwrap())
 	} else {
 		panic!(
 			"failed to tokenize token that starts with char {}",
@@ -865,6 +873,12 @@ pub(crate) enum HighStatement {
 	/// This statement contains code (computer programming computation waow)
 	/// that actually does something when executed (so NOT a declarative statement).
 	Code { instructions: Vec<HighInstruction>, semicolon: Pos },
+	/// A block statement containing more statements.
+	Block {
+		statements: Vec<HighStatement>,
+		curly_open: Pos,
+		curly_close: Pos,
+	},
 	/// A semicolon with nothing between it and the previous one or the start of file.
 	/// It is valid syntax and does nothing.
 	Empty { semicolon: Pos },
@@ -880,7 +894,8 @@ impl HighStatement {
 					semicolon.clone().one_char_span()
 				}
 			},
-			Self::Empty { semicolon } => semicolon.clone().one_char_span(),
+			HighStatement::Block { curly_open, curly_close, .. } => curly_open.span_to(curly_close),
+			HighStatement::Empty { semicolon } => semicolon.clone().one_char_span(),
 		}
 	}
 }
@@ -969,46 +984,80 @@ pub(crate) struct CharacterEscape {
 	pub(crate) representation_in_source: String,
 }
 
+fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
+	let first_token = tokenizer.peek_token().unwrap();
+
+	if matches!(first_token, Token::CurlyOpen(_)) {
+		return parse_block_statement(tokenizer);
+	}
+
+	let mut instructions = vec![];
+	let semicolon = 'instructions: loop {
+		match tokenizer.pop_token() {
+			Some(Token::IntegerLiteral(integer_literal)) => {
+				instructions.push(HighInstruction::IntegerLiteral(integer_literal));
+			},
+			Some(Token::CharacterLiteral(character_literal)) => {
+				instructions.push(HighInstruction::CharacterLiteral(character_literal));
+			},
+			Some(Token::StringLiteral(string_literal)) => {
+				instructions.push(HighInstruction::StringLiteral(string_literal))
+			},
+			Some(Token::ExplicitKeyword(explicit_keyword)) => {
+				instructions.push(HighInstruction::ExplicitKeyword(explicit_keyword));
+			},
+			Some(Token::WhitespaceAndComments(_)) => {},
+			Some(Token::Semicolon(span)) => break 'instructions span,
+			Some(Token::CurlyOpen(_span)) => panic!(),
+			Some(Token::CurlyClose(_span)) => panic!(),
+			None => {
+				if instructions.is_empty() {
+					panic!("expected statement but found end-of-file");
+				} else {
+					panic!("missing terminating semicolon for last statement");
+				}
+			},
+		};
+	};
+	if instructions.is_empty() {
+		HighStatement::Empty { semicolon }
+	} else {
+		HighStatement::Code { instructions, semicolon }
+	}
+}
+
+fn parse_block_statement(tokenizer: &mut Tokenizer) -> HighStatement {
+	let Token::CurlyOpen(curly_open) = tokenizer.pop_token().unwrap() else {
+		panic!()
+	};
+	let mut statements = vec![];
+	let curly_close = loop {
+		let first_token = tokenizer.peek_token().unwrap();
+		if let Token::CurlyClose(curly_close) = first_token {
+			let curly_close = curly_close.clone();
+			tokenizer.pop_token();
+			break curly_close.clone();
+		}
+		let statement = parse_statement(tokenizer);
+		statements.push(statement);
+	};
+	HighStatement::Block { statements, curly_open, curly_close }
+}
+
+fn parse_program(tokenizer: &mut Tokenizer) -> HighProgram {
+	let mut statements = vec![];
+	while tokenizer.peek_token().is_some() {
+		let statement = parse_statement(tokenizer);
+		statements.push(statement);
+	}
+	let source = Arc::clone(&tokenizer.reader.source);
+	HighProgram { source, statements }
+}
+
 pub(crate) fn parse(source: Arc<SourceCode>) -> HighProgram {
 	let reader = Reader::new(Arc::clone(&source));
 	let mut tokenizer = Tokenizer::new(reader);
-
-	let mut statements = vec![];
-	'statements: while tokenizer.peek_token().is_some() {
-		let mut instructions = vec![];
-		let semicolon = 'instructions: loop {
-			match tokenizer.pop_token() {
-				Some(Token::IntegerLiteral(integer_literal)) => {
-					instructions.push(HighInstruction::IntegerLiteral(integer_literal));
-				},
-				Some(Token::CharacterLiteral(character_literal)) => {
-					instructions.push(HighInstruction::CharacterLiteral(character_literal));
-				},
-				Some(Token::StringLiteral(string_literal)) => {
-					instructions.push(HighInstruction::StringLiteral(string_literal))
-				},
-				Some(Token::ExplicitKeyword(explicit_keyword)) => {
-					instructions.push(HighInstruction::ExplicitKeyword(explicit_keyword));
-				},
-				Some(Token::WhitespaceAndComments(_)) => {},
-				Some(Token::Semicolon(span)) => break 'instructions span,
-				None => {
-					if instructions.is_empty() {
-						break 'statements;
-					} else {
-						panic!("missing terminating semicolon for last statement");
-					}
-				},
-			};
-		};
-		let statement = if instructions.is_empty() {
-			HighStatement::Empty { semicolon }
-		} else {
-			HighStatement::Code { instructions, semicolon }
-		};
-		statements.push(statement);
-	}
-	HighProgram { source: Arc::clone(&source), statements }
+	parse_program(&mut tokenizer)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1075,64 +1124,74 @@ pub(crate) struct LowProgram {
 	statements: Vec<LowStatement>,
 }
 
-pub(crate) fn compile_to_low_level(program: &HighProgram) -> LowProgram {
-	let statements = program
-		.statements
-		.iter()
-		.filter_map(|statement| match statement {
-			HighStatement::Empty { .. } => None,
-			HighStatement::Code { instructions, .. } => Some({
-				// Typecheking.
-				let mut excpected_type_stack = vec![];
-				for instr in instructions.iter() {
-					let (mut operand_types, mut return_types) = instr.operand_and_return_types();
-					while let Some(top_return_type) = return_types.pop() {
-						if let Some(top_excpected_type) = excpected_type_stack.pop() {
-							assert_eq!(top_excpected_type, top_return_type, "type mismatch");
-						} else {
-							panic!(
-								"a value of type {:?} is pushed but there is no instruction to pop it",
-								top_return_type
-							);
-						}
+fn compile_statement_to_low_level_statements(
+	statement: &HighStatement,
+	low_statements: &mut Vec<LowStatement>,
+) {
+	match statement {
+		HighStatement::Empty { .. } => {},
+		HighStatement::Block { statements, .. } => {
+			for statement in statements {
+				compile_statement_to_low_level_statements(statement, low_statements);
+			}
+		},
+		HighStatement::Code { instructions, .. } => {
+			// Typecheking.
+			let mut excpected_type_stack = vec![];
+			for instr in instructions.iter() {
+				let (mut operand_types, mut return_types) = instr.operand_and_return_types();
+				while let Some(top_return_type) = return_types.pop() {
+					if let Some(top_excpected_type) = excpected_type_stack.pop() {
+						assert_eq!(top_excpected_type, top_return_type, "type mismatch");
+					} else {
+						panic!(
+							"a value of type {:?} is pushed but there is no instruction to pop it",
+							top_return_type
+						);
 					}
-					excpected_type_stack.append(&mut operand_types);
 				}
-				assert!(
-					excpected_type_stack.is_empty(),
-					"values of types {:?} are expected but there is no instruction to push them",
-					excpected_type_stack,
-				);
+				excpected_type_stack.append(&mut operand_types);
+			}
+			assert!(
+				excpected_type_stack.is_empty(),
+				"values of types {:?} are expected but there is no instruction to push them",
+				excpected_type_stack,
+			);
 
-				let instrs: Vec<_> = instructions
-					.iter()
-					.rev()
-					.map(|instruction| match instruction {
-						HighInstruction::IntegerLiteral(IntegerLiteral { value, .. }) => {
-							LowInstr::PushConst(SpineValue::I64(*value))
-						},
-						HighInstruction::CharacterLiteral(CharacterLiteral { value, .. }) => {
-							LowInstr::PushConst(SpineValue::I64(*value as i64))
-						},
-						HighInstruction::StringLiteral(StringLiteral { value, .. }) => {
-							LowInstr::PushString(value.clone())
-						},
-						HighInstruction::ExplicitKeyword(ExplicitKeyword { keyword, .. }) => {
-							match keyword.as_ref().unwrap() {
-								ExplicitKeywordWhich::PrintChar => LowInstr::PopI64AndPrintAsChar,
-								ExplicitKeywordWhich::PrintStr => LowInstr::PopI64AndPtrAndPrintAsString,
-								ExplicitKeywordWhich::Add => LowInstr::AddI64AndI64,
-								ExplicitKeywordWhich::Exit => LowInstr::Exit,
-							}
-						},
-					})
-					.collect();
-				LowStatement::Code { instrs }
-			}),
-		})
-		.collect();
+			let instrs: Vec<_> = instructions
+				.iter()
+				.rev()
+				.map(|instruction| match instruction {
+					HighInstruction::IntegerLiteral(IntegerLiteral { value, .. }) => {
+						LowInstr::PushConst(SpineValue::I64(*value))
+					},
+					HighInstruction::CharacterLiteral(CharacterLiteral { value, .. }) => {
+						LowInstr::PushConst(SpineValue::I64(*value as i64))
+					},
+					HighInstruction::StringLiteral(StringLiteral { value, .. }) => {
+						LowInstr::PushString(value.clone())
+					},
+					HighInstruction::ExplicitKeyword(ExplicitKeyword { keyword, .. }) => {
+						match keyword.as_ref().unwrap() {
+							ExplicitKeywordWhich::PrintChar => LowInstr::PopI64AndPrintAsChar,
+							ExplicitKeywordWhich::PrintStr => LowInstr::PopI64AndPtrAndPrintAsString,
+							ExplicitKeywordWhich::Add => LowInstr::AddI64AndI64,
+							ExplicitKeywordWhich::Exit => LowInstr::Exit,
+						}
+					},
+				})
+				.collect();
+			low_statements.push(LowStatement::Code { instrs });
+		},
+	}
+}
 
-	LowProgram { statements }
+pub(crate) fn compile_to_low_level(program: &HighProgram) -> LowProgram {
+	let mut low_statements = vec![];
+	for statement in program.statements.iter() {
+		compile_statement_to_low_level_statements(statement, &mut low_statements);
+	}
+	LowProgram { statements: low_statements }
 }
 
 pub(crate) fn compile_to_binary(program: &LowProgram) -> Binary {
