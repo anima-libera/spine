@@ -7,7 +7,8 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::lang::{
-	parse, HighInstruction, HighProgram, HighStatement, LineStartTable, LspPosition, Pos, SourceCode,
+	parse, HighInstruction, HighProgram, HighStatement, LineStartTable, LspPosition, LspRange, Pos,
+	SourceCode, SpineError,
 };
 
 struct SourceFileData {
@@ -17,14 +18,81 @@ struct SourceFileData {
 
 struct Backend {
 	client: Client,
-	source_files: Mutex<HashMap<PathBuf, SourceFileData>>,
+	source_files: Mutex<HashMap<PathBuf, Arc<SourceFileData>>>,
+}
+
+impl Backend {
+	fn get_source_file_data(&self, source_file_path: PathBuf) -> Option<Arc<SourceFileData>> {
+		let mut source_file_lock = self.source_files.lock();
+		if let Some(source_file) = source_file_lock.as_ref().unwrap().get(&source_file_path) {
+			Some(Arc::clone(source_file))
+		} else {
+			let source = Arc::new(SourceCode::from_file(&source_file_path)?);
+			let high_program = parse(Arc::clone(&source));
+			let source_file = Arc::new(SourceFileData { source, high_program });
+			source_file_lock
+				.as_mut()
+				.unwrap()
+				.insert(source_file_path, Arc::clone(&source_file));
+			Some(source_file)
+		}
+	}
+
+	fn get_diagnostics(&self, source_file_path: PathBuf) -> Vec<Diagnostic> {
+		let source_file = self.get_source_file_data(source_file_path);
+
+		let mut diagnostics = vec![];
+		if let Some(source_file) = source_file {
+			let errors = source_file.high_program.get_errors();
+			for error in errors {
+				match &error {
+					SpineError::UnexpectedCharacter(unexpected_character) => {
+						diagnostics.push(Diagnostic {
+							range: unexpected_character
+								.pos
+								.clone()
+								.one_char_span()
+								.to_lsp_range()
+								.into(),
+							severity: Some(DiagnosticSeverity::ERROR),
+							code: None,
+							code_description: None,
+							source: Some("spine".to_string()),
+							message: error.message(),
+							related_information: None,
+							tags: None,
+							data: None,
+						});
+					},
+				}
+			}
+		}
+
+		diagnostics
+	}
+}
+
+impl From<LspRange> for Range {
+	fn from(value: LspRange) -> Range {
+		Range {
+			start: Position {
+				line: value.start.zero_based_line_number,
+				character: value.start.index_in_bytes_in_line,
+			},
+			end: Position {
+				line: value.end.zero_based_line_number,
+				character: value.end.index_in_bytes_in_line,
+			},
+		}
+	}
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-	async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+	async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+		//params.capabilities.text_document.unwrap().diagnostic.unwrap().
 		Ok(InitializeResult {
-			server_info: None,
+			server_info: Some(ServerInfo { name: "Spine language server".to_string(), version: None }),
 			capabilities: ServerCapabilities {
 				text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
 				position_encoding: Some(PositionEncodingKind::UTF8),
@@ -33,6 +101,12 @@ impl LanguageServer for Backend {
 					trigger_characters: Some(vec![]),
 					..Default::default()
 				}),
+				diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
+					identifier: None,
+					inter_file_dependencies: true,
+					workspace_diagnostics: false,
+					work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
+				})),
 				..Default::default()
 			},
 		})
@@ -59,14 +133,23 @@ impl LanguageServer for Backend {
 
 	async fn did_open(&self, params: DidOpenTextDocumentParams) {
 		let source_file_path = params.text_document.uri.to_file_path().unwrap();
-		let source = Arc::new(SourceCode::from_file(&source_file_path));
+		let Some(source) = SourceCode::from_file(&source_file_path) else {
+			return;
+		};
+		let source = Arc::new(source);
 		let high_program = parse(Arc::clone(&source));
-		let source_file = SourceFileData { source, high_program };
+		let source_file = Arc::new(SourceFileData { source, high_program });
 		self
 			.source_files
 			.lock()
 			.unwrap()
-			.insert(source_file_path, source_file);
+			.insert(source_file_path.clone(), source_file);
+
+		let diagnostics = self.get_diagnostics(source_file_path);
+		self
+			.client
+			.publish_diagnostics(params.text_document.uri, diagnostics, None)
+			.await;
 
 		self.client.log_message(MessageType::INFO, "did open").await;
 	}
@@ -78,12 +161,18 @@ impl LanguageServer for Backend {
 		let name = source_file_path.to_str().unwrap().to_string();
 		let source = Arc::new(SourceCode::from_string(source_text, name));
 		let high_program = parse(Arc::clone(&source));
-		let source_file = SourceFileData { source, high_program };
+		let source_file = Arc::new(SourceFileData { source, high_program });
 		self
 			.source_files
 			.lock()
 			.unwrap()
-			.insert(source_file_path, source_file);
+			.insert(source_file_path.clone(), source_file);
+
+		let diagnostics = self.get_diagnostics(source_file_path);
+		self
+			.client
+			.publish_diagnostics(params.text_document.uri, diagnostics, None)
+			.await;
 
 		self
 			.client
@@ -170,8 +259,7 @@ impl LanguageServer for Backend {
 			.uri
 			.to_file_path()
 			.unwrap();
-		let source_file_lock = self.source_files.lock();
-		let Some(source_file) = source_file_lock.as_ref().unwrap().get(&source_file_path) else {
+		let Some(source_file) = self.get_source_file_data(source_file_path) else {
 			return Ok(None);
 		};
 		let pos = params.text_document_position_params.position;
@@ -215,8 +303,10 @@ impl LanguageServer for Backend {
 							break 'token_thingy Some(TokenThingy::Instruction(instruction));
 						}
 					}
-					if semicolon.is_lsp_position(pos) {
-						break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
+					if let Some(semicolon) = semicolon {
+						if semicolon.is_lsp_position(pos) {
+							break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
+						}
 					}
 				},
 				HighStatement::Block { curly_open, curly_close, .. } => {
@@ -231,6 +321,9 @@ impl LanguageServer for Backend {
 					if semicolon.is_lsp_position(pos) {
 						break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
 					}
+				},
+				HighStatement::Error { span, .. } => {
+					break 'token_thingy None;
 				},
 			}
 			None
@@ -250,6 +343,7 @@ impl LanguageServer for Backend {
 							format!("Code statement of {} insructions", instructions.len()),
 						HighStatement::Block { ref statements, .. } =>
 							format!("Block statement of {} statements", statements.len()),
+						HighStatement::Error { .. } => "Error".to_string(),
 					},
 					if statement_one_based_line_range.0 == statement_one_based_line_range.1 {
 						format!("On line {}", statement_one_based_line_range.0)
@@ -268,30 +362,39 @@ impl LanguageServer for Backend {
 					HighInstruction::CharacterLiteral(_) => "Character literal",
 					HighInstruction::StringLiteral(_) => "String literal",
 					HighInstruction::ExplicitKeyword(_) => "Explicit keyword",
+					HighInstruction::Identifier(_) => "Identifier",
 				})
 				.to_string();
 				(instruction.span().clone(), documentation)
 			},
 		};
-		let range = span.to_lsp_positions();
-		let highlight_range = Range {
-			start: Position {
-				line: range.start.zero_based_line_number,
-				character: range.start.index_in_bytes_in_line,
-			},
-			end: Position {
-				line: range.end.zero_based_line_number,
-				character: range.end.index_in_bytes_in_line,
-			},
-		};
+		let range = span.to_lsp_range();
 		let bit_of_code = span.as_str();
 		Ok(Some(Hover {
 			contents: HoverContents::Markup(MarkupContent {
 				kind: MarkupKind::Markdown,
 				value: format!("```spine\n{bit_of_code}\n```\n---\n{documentation}"),
 			}),
-			range: Some(highlight_range),
+			range: Some(range.into()),
 		}))
+	}
+
+	async fn diagnostic(
+		&self,
+		params: DocumentDiagnosticParams,
+	) -> Result<DocumentDiagnosticReportResult> {
+		let source_file_path = params.text_document.uri.to_file_path().unwrap();
+		let diagnostics = self.get_diagnostics(source_file_path);
+
+		Ok(DocumentDiagnosticReportResult::Report(
+			DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+				related_documents: None,
+				full_document_diagnostic_report: FullDocumentDiagnosticReport {
+					result_id: None,
+					items: diagnostics,
+				},
+			}),
+		))
 	}
 }
 

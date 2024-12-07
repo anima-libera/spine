@@ -89,7 +89,11 @@ fn main() {
 		if verbose {
 			println!("Reading source file \"{source_file_path}\"");
 		}
-		Arc::new(SourceCode::from_file(source_file_path))
+		let Some(source_code) = SourceCode::from_file(source_file_path) else {
+			println!("Failed to read source file \"{source_file_path}\"");
+			return;
+		};
+		Arc::new(source_code)
 	} else if let Some(raw_source) = raw_source {
 		if verbose {
 			println!("Reading raw source from command line arguments");
@@ -110,6 +114,16 @@ fn main() {
 		println!("Parsing to high level internal representation");
 	}
 	let high_program = parse(Arc::clone(&source_code));
+	let errors = high_program.get_errors();
+	if !errors.is_empty() {
+		if verbose {
+			println!("There are compile-time errors, compilation is aborted");
+		}
+		for error in errors {
+			error.print();
+		}
+		return;
+	}
 	if verbose {
 		println!("Compiling to low level internal representation");
 	}

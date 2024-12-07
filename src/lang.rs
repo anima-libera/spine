@@ -24,11 +24,11 @@ pub(crate) struct SourceCode {
 }
 
 impl SourceCode {
-	pub(crate) fn from_file(path: impl AsRef<Path>) -> SourceCode {
-		let text = std::fs::read_to_string(&path).unwrap();
+	pub(crate) fn from_file(path: impl AsRef<Path>) -> Option<SourceCode> {
+		let text = std::fs::read_to_string(&path).ok()?;
 		let name = path.as_ref().to_str().unwrap().to_string();
 		let line_starts = LineStartTable::compute_for_text(&text);
-		SourceCode { text, name, line_starts }
+		Some(SourceCode { text, name, line_starts })
 	}
 
 	/// Sometimes a pice of source code does not come from a file,
@@ -43,6 +43,31 @@ impl SourceCode {
 	fn text_at(&self, pos: PosSimple) -> &str {
 		&self.text[pos.index_in_bytes..]
 	}
+
+	fn line_span(self: &Arc<Self>, zero_based_line_number: usize) -> Option<Span> {
+		let line_start = self.line_starts.table.get(zero_based_line_number)?;
+		let line_start = PosSimple {
+			index_in_bytes: line_start.index_in_bytes,
+			index_in_chars: line_start.index_in_chars,
+			zero_based_line_number,
+		};
+		let next_line_start = self.line_starts.table.get(zero_based_line_number + 1);
+		let line_end = if let Some(next_line_start) = next_line_start {
+			let next_line_start = PosSimple {
+				index_in_bytes: next_line_start.index_in_bytes,
+				index_in_chars: next_line_start.index_in_chars,
+				zero_based_line_number: zero_based_line_number + 1,
+			};
+			next_line_start.prev(self).unwrap()
+		} else {
+			PosSimple {
+				index_in_bytes: self.text.len(),
+				index_in_chars: self.line_starts.len_in_chars,
+				zero_based_line_number,
+			}
+		};
+		Some(Span { source: Arc::clone(self), start: line_start, end: line_end })
+	}
 }
 
 /// This allows to situate a line in the source code given only the line number.
@@ -50,6 +75,8 @@ impl SourceCode {
 pub(crate) struct LineStartTable {
 	/// Line of zero-based number N starts at `table[N]` chars/bytes in the source code.
 	pub(crate) table: Vec<LineStart>,
+	/// The length (in characters, not in bytes) of the source code text.
+	pub(crate) len_in_chars: usize,
 }
 
 /// See [`LineStartTable`].
@@ -74,7 +101,7 @@ impl LineStartTable {
 				table.push(LineStart { index_in_bytes, index_in_chars });
 			}
 		}
-		LineStartTable { table }
+		LineStartTable { table, len_in_chars: index_in_chars }
 	}
 }
 
@@ -269,6 +296,20 @@ impl Pos {
 		self.pos_simple
 	}
 
+	fn min(self, other: &Pos) -> Pos {
+		Pos {
+			source: self.source,
+			pos_simple: self.pos_simple.min(&other.pos_simple),
+		}
+	}
+
+	fn max(self, other: &Pos) -> Pos {
+		Pos {
+			source: self.source,
+			pos_simple: self.pos_simple.max(&other.pos_simple),
+		}
+	}
+
 	fn next(&self) -> Option<Pos> {
 		self
 			.without_source()
@@ -276,7 +317,7 @@ impl Pos {
 			.map(|pos| pos.with_source(Arc::clone(&self.source)))
 	}
 
-	fn one_char_span(self) -> Span {
+	pub(crate) fn one_char_span(self) -> Span {
 		let pos_simple = self.without_source();
 		Span { source: self.source, start: pos_simple, end: pos_simple }
 	}
@@ -309,6 +350,30 @@ impl PosSimple {
 			zero_based_line_number: self.zero_based_line_number
 				+ if character == '\n' { 1 } else { 0 },
 		})
+	}
+
+	fn prev(&self, source: &SourceCode) -> Option<PosSimple> {
+		if self.index_in_bytes == 0 {
+			None
+		} else {
+			for prev_char_size_in_bytes_try in 1..=4 {
+				let prev_char_index_in_bytes_try = self.index_in_bytes - prev_char_size_in_bytes_try;
+				if source.text.is_char_boundary(prev_char_index_in_bytes_try) {
+					let character = source.text[prev_char_index_in_bytes_try..]
+						.chars()
+						.next()
+						.unwrap();
+					let zero_based_line_number =
+						self.zero_based_line_number - if character == '\n' { 1 } else { 0 };
+					return Some(PosSimple {
+						index_in_bytes: prev_char_index_in_bytes_try,
+						index_in_chars: self.index_in_chars - 1,
+						zero_based_line_number,
+					});
+				}
+			}
+			unreachable!();
+		}
 	}
 
 	fn min(&self, other: &PosSimple) -> PosSimple {
@@ -355,6 +420,14 @@ impl Debug for Span {
 }
 
 impl Span {
+	fn start_pos(&self) -> Pos {
+		self.start.with_source(Arc::clone(&self.source))
+	}
+
+	fn end_pos(&self) -> Pos {
+		self.end.with_source(Arc::clone(&self.source))
+	}
+
 	fn next_pos(&self) -> Option<Pos> {
 		self.end.with_source(Arc::clone(&self.source)).next()
 	}
@@ -444,7 +517,7 @@ impl Span {
 			.contains(&(lsp_pos_index_in_bytes as usize))
 	}
 
-	pub(crate) fn to_lsp_positions(&self) -> LspRange {
+	pub(crate) fn to_lsp_range(&self) -> LspRange {
 		LspRange {
 			start: self
 				.start
@@ -509,6 +582,12 @@ pub(crate) struct ExplicitKeyword {
 }
 
 #[derive(Debug)]
+pub(crate) struct Identifier {
+	pub(crate) span: Span,
+	pub(crate) name: String,
+}
+
+#[derive(Debug)]
 struct Comment {
 	span: Span,
 	is_block: bool,
@@ -521,16 +600,24 @@ struct WhitespaceAndComments {
 	comments: Vec<Comment>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct UnexpectedCharacter {
+	pub(crate) pos: Pos,
+	pub(crate) character: char,
+}
+
 #[derive(Debug)]
 enum Token {
 	IntegerLiteral(IntegerLiteral),
 	CharacterLiteral(CharacterLiteral),
 	StringLiteral(StringLiteral),
 	ExplicitKeyword(ExplicitKeyword),
+	Identifier(Identifier),
 	Semicolon(Pos),
 	CurlyOpen(Pos),
 	CurlyClose(Pos),
 	WhitespaceAndComments(WhitespaceAndComments),
+	UnexpectedCharacter(UnexpectedCharacter),
 }
 
 impl Token {
@@ -540,10 +627,12 @@ impl Token {
 			Token::CharacterLiteral(t) => t.span.clone(),
 			Token::StringLiteral(t) => t.span.clone(),
 			Token::ExplicitKeyword(t) => t.span.clone(),
+			Token::Identifier(t) => t.span.clone(),
 			Token::Semicolon(pos) => pos.clone().one_char_span(),
 			Token::CurlyOpen(pos) => pos.clone().one_char_span(),
 			Token::CurlyClose(pos) => pos.clone().one_char_span(),
 			Token::WhitespaceAndComments(t) => t.span.clone(),
+			Token::UnexpectedCharacter(t) => t.pos.clone().one_char_span(),
 		}
 	}
 }
@@ -814,10 +903,9 @@ fn pop_token_from_reader(reader: &mut Reader) -> Option<Token> {
 	} else if reader.skip_if_eq('}') {
 		Token::CurlyClose(reader.prev_pos().unwrap())
 	} else {
-		panic!(
-			"failed to tokenize token that starts with char {}",
-			reader.peek().unwrap()
-		)
+		let pos = reader.next_pos().unwrap();
+		let character = reader.pop().unwrap();
+		Token::UnexpectedCharacter(UnexpectedCharacter { pos, character })
 	})
 }
 
@@ -868,11 +956,92 @@ pub(crate) struct HighProgram {
 	pub(crate) statements: Vec<HighStatement>,
 }
 
+pub(crate) enum SpineError {
+	UnexpectedCharacter(UnexpectedCharacter),
+}
+
+fn print_error(span: Span, message: String) {
+	let red = "\x1b[31m";
+	let default_color = "\x1b[39m";
+	println!("{red}error:{default_color} {message}");
+	let (one_based_line_start, one_based_line_end) = span.one_based_line_range();
+	if one_based_line_start == one_based_line_end {
+		let one_based_line_number = one_based_line_start;
+		let zero_based_line_number = one_based_line_number - 1;
+		let line_span = span.source.line_span(zero_based_line_number).unwrap();
+		let line_text = line_span.as_str();
+		let span_start_in_line_in_chars = span.start.index_in_chars - line_span.start.index_in_chars;
+		let span_end_in_line_in_chars = span.end.index_in_chars - line_span.start.index_in_chars;
+		let span_start_in_line_in_bytes = line_text
+			.char_indices()
+			.nth(span_start_in_line_in_chars)
+			.unwrap()
+			.0;
+		let span_end_in_line_in_bytes = line_text
+			.char_indices()
+			.nth(span_end_in_line_in_chars)
+			.unwrap()
+			.0;
+		eprintln!(
+			" {one_based_line_number} | {}{red}{}{default_color}{}",
+			&line_text[..span_start_in_line_in_bytes],
+			&line_text[span_start_in_line_in_bytes..(span_end_in_line_in_bytes + 1)],
+			&line_text[(span_end_in_line_in_bytes + 1)..].trim_end(),
+		);
+	} else {
+		unimplemented!() // yet
+	}
+}
+
+impl SpineError {
+	pub(crate) fn span(&self) -> Span {
+		match self {
+			Self::UnexpectedCharacter(unexpected_character) => {
+				unexpected_character.pos.clone().one_char_span()
+			},
+		}
+	}
+
+	pub(crate) fn message(&self) -> String {
+		match self {
+			Self::UnexpectedCharacter(unexpected_character) => {
+				format!(
+					"character \'{}\' is unexpected here and causes a parsing error",
+					unexpected_character.character
+				)
+			},
+		}
+	}
+
+	pub(crate) fn print(&self) {
+		print_error(self.span(), self.message());
+	}
+}
+
+impl HighProgram {
+	pub(crate) fn get_errors(&self) -> Vec<SpineError> {
+		let mut errors = vec![];
+		for statement in self.statements.iter() {
+			if let HighStatement::Error { unexpected_characters, .. } = statement {
+				for unexpected_character in unexpected_characters.iter() {
+					errors.push(SpineError::UnexpectedCharacter(
+						unexpected_character.clone(),
+					));
+				}
+			}
+		}
+		errors
+	}
+}
+
 #[derive(Debug)]
 pub(crate) enum HighStatement {
 	/// This statement contains code (computer programming computation waow)
 	/// that actually does something when executed (so NOT a declarative statement).
-	Code { instructions: Vec<HighInstruction>, semicolon: Pos },
+	Code {
+		instructions: Vec<HighInstruction>,
+		semicolon: Option<Pos>,
+	},
 	/// A block statement containing more statements.
 	Block {
 		statements: Vec<HighStatement>,
@@ -882,20 +1051,30 @@ pub(crate) enum HighStatement {
 	/// A semicolon with nothing between it and the previous one or the start of file.
 	/// It is valid syntax and does nothing.
 	Empty { semicolon: Pos },
+	/// The compiler could not parse this piece of source code into a proper statement.
+	/// This should produce a compile-time error.
+	Error {
+		span: Span,
+		unexpected_characters: Vec<UnexpectedCharacter>,
+		semicolon: Option<Pos>,
+	},
 }
 
 impl HighStatement {
 	pub(crate) fn span(&self) -> Span {
 		match self {
 			HighStatement::Code { instructions, semicolon } => {
-				if let Some(first_instruction) = instructions.first() {
-					first_instruction.span().clone().extend_to(semicolon)
+				let start = instructions.first().unwrap().span().start_pos();
+				let end = if let Some(semicolon) = semicolon {
+					semicolon
 				} else {
-					semicolon.clone().one_char_span()
-				}
+					&instructions.last().unwrap().span().end_pos()
+				};
+				start.span_to(end)
 			},
 			HighStatement::Block { curly_open, curly_close, .. } => curly_open.span_to(curly_close),
 			HighStatement::Empty { semicolon } => semicolon.clone().one_char_span(),
+			HighStatement::Error { span, .. } => span.clone(),
 		}
 	}
 }
@@ -906,6 +1085,14 @@ pub(crate) enum HighInstruction {
 	CharacterLiteral(CharacterLiteral),
 	StringLiteral(StringLiteral),
 	ExplicitKeyword(ExplicitKeyword),
+	Identifier(Identifier),
+}
+
+struct OperandAndReturnTypes {
+	/// If operand types are `[A, B]` then it means `B` will be popped before `A`.
+	operand_types: Vec<SpineType>,
+	/// If return types are `[A, B]` then it means `A` will be pushed before `B`.
+	return_types: Vec<SpineType>,
 }
 
 impl HighInstruction {
@@ -915,29 +1102,45 @@ impl HighInstruction {
 			HighInstruction::CharacterLiteral(t) => &t.span,
 			HighInstruction::StringLiteral(t) => &t.span,
 			HighInstruction::ExplicitKeyword(t) => &t.span,
+			HighInstruction::Identifier(t) => &t.span,
 		}
 	}
 
 	/// Order:
 	/// - If operand types are `[A, B]` then it means `B` will be popped before `A`.
 	/// - If return types are `[A, B]` then it means `A` will be pushed before `B`.
-	fn operand_and_return_types(&self) -> (Vec<SpineType>, Vec<SpineType>) {
+	fn operand_and_return_types(&self) -> OperandAndReturnTypes {
 		match self {
-			HighInstruction::IntegerLiteral(_) => (vec![], vec![SpineType::I64]),
-			HighInstruction::CharacterLiteral(_) => (vec![], vec![SpineType::I64]),
-			HighInstruction::StringLiteral(_) => (vec![], vec![SpineType::DataAddr, SpineType::I64]),
+			HighInstruction::IntegerLiteral(_) => {
+				OperandAndReturnTypes { operand_types: vec![], return_types: vec![SpineType::I64] }
+			},
+			HighInstruction::CharacterLiteral(_) => {
+				OperandAndReturnTypes { operand_types: vec![], return_types: vec![SpineType::I64] }
+			},
+			HighInstruction::StringLiteral(_) => OperandAndReturnTypes {
+				operand_types: vec![],
+				return_types: vec![SpineType::DataAddr, SpineType::I64],
+			},
 			HighInstruction::ExplicitKeyword(ExplicitKeyword { keyword, .. }) => {
 				match keyword.as_ref().unwrap() {
-					ExplicitKeywordWhich::PrintChar => (vec![SpineType::I64], vec![]),
-					ExplicitKeywordWhich::PrintStr => {
-						(vec![SpineType::DataAddr, SpineType::I64], vec![])
+					ExplicitKeywordWhich::PrintChar => OperandAndReturnTypes {
+						operand_types: vec![SpineType::I64],
+						return_types: vec![],
 					},
-					ExplicitKeywordWhich::Add => {
-						(vec![SpineType::I64, SpineType::I64], vec![SpineType::I64])
+					ExplicitKeywordWhich::PrintStr => OperandAndReturnTypes {
+						operand_types: vec![SpineType::DataAddr, SpineType::I64],
+						return_types: vec![],
 					},
-					ExplicitKeywordWhich::Exit => (vec![], vec![]),
+					ExplicitKeywordWhich::Add => OperandAndReturnTypes {
+						operand_types: vec![SpineType::I64, SpineType::I64],
+						return_types: vec![SpineType::I64],
+					},
+					ExplicitKeywordWhich::Exit => {
+						OperandAndReturnTypes { operand_types: vec![], return_types: vec![] }
+					},
 				}
 			},
+			HighInstruction::Identifier(_) => unimplemented!(),
 		}
 	}
 }
@@ -992,6 +1195,7 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 	}
 
 	let mut instructions = vec![];
+	let mut unexpected_characters = vec![];
 	let semicolon = 'instructions: loop {
 		match tokenizer.pop_token() {
 			Some(Token::IntegerLiteral(integer_literal)) => {
@@ -1006,21 +1210,39 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 			Some(Token::ExplicitKeyword(explicit_keyword)) => {
 				instructions.push(HighInstruction::ExplicitKeyword(explicit_keyword));
 			},
+			Some(Token::Identifier(_)) => unimplemented!(),
 			Some(Token::WhitespaceAndComments(_)) => {},
-			Some(Token::Semicolon(span)) => break 'instructions span,
+			Some(Token::Semicolon(span)) => break 'instructions Some(span),
 			Some(Token::CurlyOpen(_span)) => panic!(),
 			Some(Token::CurlyClose(_span)) => panic!(),
+			Some(Token::UnexpectedCharacter(unexpected)) => {
+				unexpected_characters.push(unexpected);
+			},
 			None => {
 				if instructions.is_empty() {
 					panic!("expected statement but found end-of-file");
 				} else {
-					panic!("missing terminating semicolon for last statement");
+					// Missing terminating semicolon.
+					break 'instructions None;
 				}
 			},
 		};
 	};
-	if instructions.is_empty() {
-		HighStatement::Empty { semicolon }
+
+	if !unexpected_characters.is_empty() {
+		let mut start = unexpected_characters.first().unwrap().pos.clone();
+		let mut end = unexpected_characters.last().unwrap().pos.clone();
+		if !unexpected_characters.is_empty() {
+			start = start.min(&unexpected_characters.first().unwrap().pos);
+			end = end.max(&unexpected_characters.last().unwrap().pos);
+		}
+		if let Some(semicolon) = &semicolon {
+			end = semicolon.clone();
+		}
+		let span = start.span_to(&end);
+		HighStatement::Error { span, unexpected_characters, semicolon }
+	} else if instructions.is_empty() {
+		HighStatement::Empty { semicolon: semicolon.unwrap() }
 	} else {
 		HighStatement::Code { instructions, semicolon }
 	}
@@ -1130,6 +1352,7 @@ fn compile_statement_to_low_level_statements(
 ) {
 	match statement {
 		HighStatement::Empty { .. } => {},
+		HighStatement::Error { .. } => panic!(),
 		HighStatement::Block { statements, .. } => {
 			for statement in statements {
 				compile_statement_to_low_level_statements(statement, low_statements);
@@ -1139,7 +1362,8 @@ fn compile_statement_to_low_level_statements(
 			// Typecheking.
 			let mut excpected_type_stack = vec![];
 			for instr in instructions.iter() {
-				let (mut operand_types, mut return_types) = instr.operand_and_return_types();
+				let OperandAndReturnTypes { mut operand_types, mut return_types } =
+					instr.operand_and_return_types();
 				while let Some(top_return_type) = return_types.pop() {
 					if let Some(top_excpected_type) = excpected_type_stack.pop() {
 						assert_eq!(top_excpected_type, top_return_type, "type mismatch");
@@ -1179,6 +1403,7 @@ fn compile_statement_to_low_level_statements(
 							ExplicitKeywordWhich::Exit => LowInstr::Exit,
 						}
 					},
+					HighInstruction::Identifier(_) => unimplemented!(),
 				})
 				.collect();
 			low_statements.push(LowStatement::Code { instrs });
