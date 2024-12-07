@@ -27,4 +27,4 @@ kwprintchar kwprintchar kwprintchar kwprintchar 'o' 'w' 'o' '\n';
     that can span multiple lines }
 
 -- Terminates process execution. Segfault probably occurs if it is missing.
-kwexit;
+kwexit

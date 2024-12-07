@@ -7,8 +7,8 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::lang::{
-	parse, HighInstruction, HighProgram, HighStatement, LineStartTable, LspPosition, LspRange, Pos,
-	SourceCode, SpineError,
+	parse, CompilationError, CompilationWarning, HighInstruction, HighProgram, HighStatement,
+	LineStartTable, LspPosition, LspRange, Pos, SourceCode,
 };
 
 struct SourceFileData {
@@ -46,7 +46,7 @@ impl Backend {
 			let errors = source_file.high_program.get_errors();
 			for error in errors {
 				match &error {
-					SpineError::UnexpectedCharacter(unexpected_character) => {
+					CompilationError::UnexpectedCharacter(unexpected_character) => {
 						diagnostics.push(Diagnostic {
 							range: unexpected_character
 								.pos
@@ -59,6 +59,24 @@ impl Backend {
 							code_description: None,
 							source: Some("spine".to_string()),
 							message: error.message(),
+							related_information: None,
+							tags: None,
+							data: None,
+						});
+					},
+				}
+			}
+			let warnings = source_file.high_program.get_warnings();
+			for warning in warnings {
+				match &warning {
+					CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
+						diagnostics.push(Diagnostic {
+							range: statement_span.to_lsp_range().into(),
+							severity: Some(DiagnosticSeverity::WARNING),
+							code: None,
+							code_description: None,
+							source: Some("spine".to_string()),
+							message: warning.message(),
 							related_information: None,
 							tags: None,
 							data: None,

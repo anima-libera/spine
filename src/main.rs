@@ -124,6 +124,13 @@ fn main() {
 		}
 		return;
 	}
+	let warnings = high_program.get_warnings();
+	if !warnings.is_empty() && verbose {
+		println!("There are compile-time warnings but it is no big deal");
+	}
+	for warning in high_program.get_warnings() {
+		warning.print();
+	}
 	if verbose {
 		println!("Compiling to low level internal representation");
 	}

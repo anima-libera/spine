@@ -956,14 +956,24 @@ pub(crate) struct HighProgram {
 	pub(crate) statements: Vec<HighStatement>,
 }
 
-pub(crate) enum SpineError {
-	UnexpectedCharacter(UnexpectedCharacter),
+enum MessageKind {
+	Error,
+	Warning,
 }
 
-fn print_error(span: Span, message: String) {
+fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 	let red = "\x1b[31m";
+	let yellow = "\x1b[33m";
+	let color = match kind {
+		MessageKind::Error => red,
+		MessageKind::Warning => yellow,
+	};
+	let message_kind_name = match kind {
+		MessageKind::Error => "error",
+		MessageKind::Warning => "warning",
+	};
 	let default_color = "\x1b[39m";
-	println!("{red}error:{default_color} {message}");
+	println!("{color}{message_kind_name}:{default_color} {message}");
 	let (one_based_line_start, one_based_line_end) = span.one_based_line_range();
 	if one_based_line_start == one_based_line_end {
 		let one_based_line_number = one_based_line_start;
@@ -983,7 +993,7 @@ fn print_error(span: Span, message: String) {
 			.unwrap()
 			.0;
 		eprintln!(
-			" {one_based_line_number} | {}{red}{}{default_color}{}",
+			" {one_based_line_number} | {}{color}{}{default_color}{}",
 			&line_text[..span_start_in_line_in_bytes],
 			&line_text[span_start_in_line_in_bytes..(span_end_in_line_in_bytes + 1)],
 			&line_text[(span_end_in_line_in_bytes + 1)..].trim_end(),
@@ -993,10 +1003,14 @@ fn print_error(span: Span, message: String) {
 	}
 }
 
-impl SpineError {
+pub(crate) enum CompilationError {
+	UnexpectedCharacter(UnexpectedCharacter),
+}
+
+impl CompilationError {
 	pub(crate) fn span(&self) -> Span {
 		match self {
-			Self::UnexpectedCharacter(unexpected_character) => {
+			CompilationError::UnexpectedCharacter(unexpected_character) => {
 				unexpected_character.pos.clone().one_char_span()
 			},
 		}
@@ -1004,7 +1018,7 @@ impl SpineError {
 
 	pub(crate) fn message(&self) -> String {
 		match self {
-			Self::UnexpectedCharacter(unexpected_character) => {
+			CompilationError::UnexpectedCharacter(unexpected_character) => {
 				format!(
 					"character \'{}\' is unexpected here and causes a parsing error",
 					unexpected_character.character
@@ -1014,23 +1028,60 @@ impl SpineError {
 	}
 
 	pub(crate) fn print(&self) {
-		print_error(self.span(), self.message());
+		print_compilation_message(MessageKind::Error, self.span(), self.message());
+	}
+}
+
+pub(crate) enum CompilationWarning {
+	MissingTerminatingSemicolon { statement_span: Span },
+}
+
+impl CompilationWarning {
+	pub(crate) fn span(&self) -> Span {
+		match self {
+			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
+				statement_span.clone()
+			},
+		}
+	}
+
+	pub(crate) fn message(&self) -> String {
+		match self {
+			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
+				"missing terminating semicolon \';\' at the end of this statement".to_string()
+			},
+		}
+	}
+
+	pub(crate) fn print(&self) {
+		print_compilation_message(MessageKind::Warning, self.span(), self.message());
 	}
 }
 
 impl HighProgram {
-	pub(crate) fn get_errors(&self) -> Vec<SpineError> {
+	pub(crate) fn get_errors(&self) -> Vec<CompilationError> {
 		let mut errors = vec![];
 		for statement in self.statements.iter() {
 			if let HighStatement::Error { unexpected_characters, .. } = statement {
 				for unexpected_character in unexpected_characters.iter() {
-					errors.push(SpineError::UnexpectedCharacter(
+					errors.push(CompilationError::UnexpectedCharacter(
 						unexpected_character.clone(),
 					));
 				}
 			}
 		}
 		errors
+	}
+
+	pub(crate) fn get_warnings(&self) -> Vec<CompilationWarning> {
+		let mut warnings = vec![];
+		for statement in self.statements.iter() {
+			if let HighStatement::Code { semicolon: None, .. } = statement {
+				let statement_span = statement.span();
+				warnings.push(CompilationWarning::MissingTerminatingSemicolon { statement_span });
+			}
+		}
+		warnings
 	}
 }
 
