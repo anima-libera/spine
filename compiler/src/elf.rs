@@ -41,7 +41,7 @@ byte_buffer_fn_write!(write_u64, u64);
 // The offset in the binary and the address in the memory are related but are not to be confused
 // with each other. These may be refered to as the *offset* and the *address* respectively.
 
-pub(crate) struct Binary {
+pub struct Binary {
 	entry_point_offset_in_code: usize,
 	/// Address in memory of where we want to put the code
 	/// (but it actually ends up at some address that is this value added to
@@ -96,7 +96,7 @@ impl Binary {
 		}
 	}
 
-	pub(crate) fn code_segment_binary_machine_code(&self) -> Vec<u8> {
+	pub fn code_segment_binary_machine_code(&self) -> Vec<u8> {
 		let layout = self.layout();
 		let mut instr_address = layout.code_segment_address;
 		let mut machine_code_bytes = Vec::new();
@@ -129,7 +129,7 @@ impl Binary {
 	const CODE_OFFSET_IN_BINARY: usize =
 		Binary::ELF_HEADER_SIZE + Binary::PROGRAM_HEADER_TABLE_ENTRY_SIZE * 2;
 
-	pub(crate) fn to_binary(&self) -> Vec<u8> {
+	pub fn to_binary(&self) -> Vec<u8> {
 		let mut buf = ByteBuffer::new();
 
 		// See https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
@@ -234,7 +234,7 @@ impl Binary {
 	}
 }
 
-pub(crate) fn chmod_x(path: impl AsRef<std::path::Path>) {
+pub fn chmod_x(path: impl AsRef<std::path::Path>) {
 	let mut permissions = std::fs::metadata(&path).unwrap().permissions();
 	let permission_flags = permissions.mode();
 	let executable_mask = 0b0001001001; // drwxrwxrwx, we set the xs to 1

@@ -61,7 +61,7 @@ The language server part of the Spine compiler binary is optional (and enabled b
 
 The language server part of the code is gated behind the cargo feature `lsp` which is enabled by default. To build the thing without that feature, simply use the `--no-default-features` cargo option (see [here](https://doc.rust-lang.org/cargo/reference/features.html#the-default-feature) for more about this cargo option and cargo features).
 
-Building without the language server part makes the compiler binary significantly smaller, and improves compile time by quite a lot (both the first build and the incremental builds), it can be a good idea to build with `--no-default-features` when iterating over the code and building with high frequency or when a small build is desirable.
+Building without the language server part makes the compiler binary significantly smaller, and improves compile time (both the first build and incremental builds), it can be a good idea to build with `--no-default-features` when iterating over the code and building with high frequency or when a small build is desirable.
 
 ## Spine programming language tour
 

@@ -627,7 +627,20 @@ dependencies = [
 name = "spine"
 version = "0.1.0"
 dependencies = [
+ "spine_compiler",
+ "spine_language_server",
+]
+
+[[package]]
+name = "spine_compiler"
+version = "0.1.0"
+
+[[package]]
+name = "spine_language_server"
+version = "0.1.0"
+dependencies = [
  "serde_json",
+ "spine_compiler",
  "tokio",
  "tower-lsp",
 ]

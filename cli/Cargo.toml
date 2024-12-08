@@ -1,0 +1,16 @@
+[package]
+name = "spine"
+version = "0.1.0"
+description = "Spine compiler CLI"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+authors = ["Anima <anim.libera@gmail.com>"]
+default-run = "spine"
+
+[features]
+default = ["lsp"]
+lsp = ["dep:spine_language_server"]
+
+[dependencies]
+spine_compiler = { path = "../compiler" }
+spine_language_server = { path = "../language_server", optional = true }

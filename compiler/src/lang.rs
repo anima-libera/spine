@@ -1,7 +1,6 @@
 use core::str;
 use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::fs::read;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -17,14 +16,14 @@ use crate::imm::{Imm, Imm64};
 /// `Arc` instead of `Rc` because [`tower_lsp::LanguageServer`] requires `Send` and `Sync`
 /// so the language server needs to be `Sync` and `Rc` is not.
 #[derive(Debug)]
-pub(crate) struct SourceCode {
-	pub(crate) text: String,
-	pub(crate) name: String,
-	pub(crate) line_starts: LineStartTable,
+pub struct SourceCode {
+	pub text: String,
+	pub name: String,
+	line_starts: LineStartTable,
 }
 
 impl SourceCode {
-	pub(crate) fn from_file(path: impl AsRef<Path>) -> Option<SourceCode> {
+	pub fn from_file(path: impl AsRef<Path>) -> Option<SourceCode> {
 		let text = std::fs::read_to_string(&path).ok()?;
 		let name = path.as_ref().to_str().unwrap().to_string();
 		let line_starts = LineStartTable::compute_for_text(&text);
@@ -34,7 +33,7 @@ impl SourceCode {
 	/// Sometimes a pice of source code does not come from a file,
 	/// for example the `--raw-source` CLI option allows to
 	/// compile Spine source code given directly in the command line arguments.
-	pub(crate) fn from_string(text: String, name: String) -> SourceCode {
+	pub fn from_string(text: String, name: String) -> SourceCode {
 		let line_starts = LineStartTable::compute_for_text(&text);
 		SourceCode { text, name, line_starts }
 	}
@@ -72,7 +71,7 @@ impl SourceCode {
 
 /// This allows to situate a line in the source code given only the line number.
 #[derive(Debug)]
-pub(crate) struct LineStartTable {
+pub struct LineStartTable {
 	/// Line of zero-based number N starts at `table[N]` chars/bytes in the source code.
 	pub(crate) table: Vec<LineStart>,
 	/// The length (in characters, not in bytes) of the source code text.
@@ -260,7 +259,7 @@ impl Reader {
 
 /// The position of a character in a [`SourceCode`].
 #[derive(Debug, Clone)]
-pub(crate) struct Pos {
+pub struct Pos {
 	pub(crate) source: Arc<SourceCode>,
 	pub(crate) pos_simple: PosSimple,
 }
@@ -317,7 +316,7 @@ impl Pos {
 			.map(|pos| pos.with_source(Arc::clone(&self.source)))
 	}
 
-	pub(crate) fn one_char_span(self) -> Span {
+	pub fn one_char_span(self) -> Span {
 		let pos_simple = self.without_source();
 		Span { source: self.source, start: pos_simple, end: pos_simple }
 	}
@@ -398,7 +397,7 @@ impl PosSimple {
 }
 
 #[derive(Clone)]
-pub(crate) struct Span {
+pub struct Span {
 	source: Arc<SourceCode>,
 	/// Included.
 	start: PosSimple,
@@ -458,23 +457,23 @@ impl Span {
 		}
 	}
 
-	pub(crate) fn as_str(&self) -> &str {
+	pub fn as_str(&self) -> &str {
 		&self.source.text[self.start.index_in_bytes..=self.end.index_in_bytes]
 	}
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct LspPosition {
-	pub(crate) zero_based_line_number: u32,
+pub struct LspPosition {
+	pub zero_based_line_number: u32,
 	/// Zero-based, index in the bytes of the line.
-	pub(crate) index_in_bytes_in_line: u32,
+	pub index_in_bytes_in_line: u32,
 }
 
-pub(crate) struct LspRange {
+pub struct LspRange {
 	/// Included.
-	pub(crate) start: LspPosition,
+	pub start: LspPosition,
 	/// Excluded! Beware.
-	pub(crate) end: LspPosition,
+	pub end: LspPosition,
 }
 
 impl Pos {
@@ -488,7 +487,7 @@ impl Pos {
 		}
 	}
 
-	pub(crate) fn is_lsp_position(&self, lsp_pos: LspPosition) -> bool {
+	pub fn is_lsp_position(&self, lsp_pos: LspPosition) -> bool {
 		self.to_lsp_position() == lsp_pos
 	}
 }
@@ -501,14 +500,14 @@ impl Span {
 		)
 	}
 
-	pub(crate) fn one_based_line_range(&self) -> (usize, usize) {
+	pub fn one_based_line_range(&self) -> (usize, usize) {
 		(
 			self.start.zero_based_line_number + 1,
 			self.end.zero_based_line_number + 1,
 		)
 	}
 
-	pub(crate) fn contains_lsp_position(&self, lsp_pos: LspPosition) -> bool {
+	pub fn contains_lsp_position(&self, lsp_pos: LspPosition) -> bool {
 		let line_start_in_bytes = self.source.line_starts.table
 			[lsp_pos.zero_based_line_number as usize]
 			.index_in_bytes as u32;
@@ -517,7 +516,7 @@ impl Span {
 			.contains(&(lsp_pos_index_in_bytes as usize))
 	}
 
-	pub(crate) fn to_lsp_range(&self) -> LspRange {
+	pub fn to_lsp_range(&self) -> LspRange {
 		LspRange {
 			start: self
 				.start
@@ -535,23 +534,23 @@ impl Span {
 
 /// Integer literal token, like `41` or `0x6a`.
 #[derive(Debug)]
-pub(crate) struct IntegerLiteral {
+pub struct IntegerLiteral {
 	pub(crate) span: Span,
 	pub(crate) radix_prefix: Option<RadixPrefix>,
-	pub(crate) value: i64,
+	pub value: i64,
 }
 
 /// Character literal token, like `'a'` or `'\n'`.
 #[derive(Debug)]
-pub(crate) struct CharacterLiteral {
+pub struct CharacterLiteral {
 	pub(crate) span: Span,
 	pub(crate) character_escape: Option<CharacterEscape>,
-	pub(crate) value: char,
+	pub value: char,
 }
 
 /// String literal token, like `"awa"`.
 #[derive(Debug)]
-pub(crate) struct StringLiteral {
+pub struct StringLiteral {
 	pub(crate) span: Span,
 	pub(crate) character_escapes: Vec<CharacterEscape>,
 	pub(crate) value: String,
@@ -561,7 +560,7 @@ pub(crate) struct StringLiteral {
 /// and serves as an internal compiler feature that is not intended
 /// to be used by a Spine user when proper syntaxes and features come out.
 #[derive(Debug)]
-pub(crate) enum ExplicitKeywordWhich {
+pub enum ExplicitKeywordWhich {
 	/// Pops an i64 and prints the ASCII character it represents.
 	PrintChar,
 	/// Pops an i64 (string length) then pops a pointer (to the string content),
@@ -576,13 +575,13 @@ pub(crate) enum ExplicitKeywordWhich {
 
 /// Explicit keyword token, like `kwexit`.
 #[derive(Debug)]
-pub(crate) struct ExplicitKeyword {
+pub struct ExplicitKeyword {
 	pub(crate) span: Span,
 	pub(crate) keyword: Option<ExplicitKeywordWhich>,
 }
 
 #[derive(Debug)]
-pub(crate) struct Identifier {
+pub struct Identifier {
 	pub(crate) span: Span,
 	pub(crate) name: String,
 }
@@ -601,9 +600,9 @@ struct WhitespaceAndComments {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct UnexpectedCharacter {
-	pub(crate) pos: Pos,
-	pub(crate) character: char,
+pub struct UnexpectedCharacter {
+	pub pos: Pos,
+	pub character: char,
 }
 
 #[derive(Debug)]
@@ -951,9 +950,9 @@ impl Tokenizer {
 }
 
 #[derive(Debug)]
-pub(crate) struct HighProgram {
+pub struct HighProgram {
 	pub(crate) source: Arc<SourceCode>,
-	pub(crate) statements: Vec<HighStatement>,
+	pub statements: Vec<HighStatement>,
 }
 
 enum MessageKind {
@@ -1003,7 +1002,7 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 	}
 }
 
-pub(crate) enum CompilationError {
+pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
 }
 
@@ -1016,7 +1015,7 @@ impl CompilationError {
 		}
 	}
 
-	pub(crate) fn message(&self) -> String {
+	pub fn message(&self) -> String {
 		match self {
 			CompilationError::UnexpectedCharacter(unexpected_character) => {
 				format!(
@@ -1027,17 +1026,17 @@ impl CompilationError {
 		}
 	}
 
-	pub(crate) fn print(&self) {
+	pub fn print(&self) {
 		print_compilation_message(MessageKind::Error, self.span(), self.message());
 	}
 }
 
-pub(crate) enum CompilationWarning {
+pub enum CompilationWarning {
 	MissingTerminatingSemicolon { statement_span: Span },
 }
 
 impl CompilationWarning {
-	pub(crate) fn span(&self) -> Span {
+	pub fn span(&self) -> Span {
 		match self {
 			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
 				statement_span.clone()
@@ -1045,7 +1044,7 @@ impl CompilationWarning {
 		}
 	}
 
-	pub(crate) fn message(&self) -> String {
+	pub fn message(&self) -> String {
 		match self {
 			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
 				"missing terminating semicolon \';\' at the end of this statement".to_string()
@@ -1053,11 +1052,11 @@ impl CompilationWarning {
 		}
 	}
 
-	pub(crate) fn print(&self) {
+	pub fn print(&self) {
 		print_compilation_message(MessageKind::Warning, self.span(), self.message());
 	}
 
-	pub(crate) fn fix_by_rewrite_proposal(&self) -> Option<FixByRewrite> {
+	pub fn fix_by_rewrite_proposal(&self) -> Option<FixByRewrite> {
 		match self {
 			CompilationWarning::MissingTerminatingSemicolon { statement_span } => Some(FixByRewrite {
 				description: "Add a terminating semicolon \';\'".to_string(),
@@ -1067,13 +1066,13 @@ impl CompilationWarning {
 	}
 }
 
-pub(crate) struct FixByRewrite {
-	pub(crate) description: String,
-	pub(crate) new_code: String,
+pub struct FixByRewrite {
+	pub description: String,
+	pub new_code: String,
 }
 
 impl HighProgram {
-	pub(crate) fn get_errors(&self) -> Vec<CompilationError> {
+	pub fn get_errors(&self) -> Vec<CompilationError> {
 		let mut errors = vec![];
 		for statement in self.statements.iter() {
 			if let HighStatement::Error { unexpected_characters, .. } = statement {
@@ -1087,7 +1086,7 @@ impl HighProgram {
 		errors
 	}
 
-	pub(crate) fn get_warnings(&self) -> Vec<CompilationWarning> {
+	pub fn get_warnings(&self) -> Vec<CompilationWarning> {
 		let mut warnings = vec![];
 		for statement in self.statements.iter() {
 			if let HighStatement::Code { semicolon: None, .. } = statement {
@@ -1100,7 +1099,7 @@ impl HighProgram {
 }
 
 #[derive(Debug)]
-pub(crate) enum HighStatement {
+pub enum HighStatement {
 	/// This statement contains code (computer programming computation waow)
 	/// that actually does something when executed (so NOT a declarative statement).
 	Code {
@@ -1126,7 +1125,7 @@ pub(crate) enum HighStatement {
 }
 
 impl HighStatement {
-	pub(crate) fn span(&self) -> Span {
+	pub fn span(&self) -> Span {
 		match self {
 			HighStatement::Code { instructions, semicolon } => {
 				let start = instructions.first().unwrap().span().start_pos();
@@ -1145,7 +1144,7 @@ impl HighStatement {
 }
 
 #[derive(Debug)]
-pub(crate) enum HighInstruction {
+pub enum HighInstruction {
 	IntegerLiteral(IntegerLiteral),
 	CharacterLiteral(CharacterLiteral),
 	StringLiteral(StringLiteral),
@@ -1161,7 +1160,7 @@ struct OperandAndReturnTypes {
 }
 
 impl HighInstruction {
-	pub(crate) fn span(&self) -> &Span {
+	pub fn span(&self) -> &Span {
 		match self {
 			HighInstruction::IntegerLiteral(t) => &t.span,
 			HighInstruction::CharacterLiteral(t) => &t.span,
@@ -1341,7 +1340,7 @@ fn parse_program(tokenizer: &mut Tokenizer) -> HighProgram {
 	HighProgram { source, statements }
 }
 
-pub(crate) fn parse(source: Arc<SourceCode>) -> HighProgram {
+pub fn parse(source: Arc<SourceCode>) -> HighProgram {
 	let reader = Reader::new(Arc::clone(&source));
 	let mut tokenizer = Tokenizer::new(reader);
 	parse_program(&mut tokenizer)
@@ -1407,7 +1406,7 @@ enum LowStatement {
 }
 
 /// Low level program.
-pub(crate) struct LowProgram {
+pub struct LowProgram {
 	statements: Vec<LowStatement>,
 }
 
@@ -1476,7 +1475,7 @@ fn compile_statement_to_low_level_statements(
 	}
 }
 
-pub(crate) fn compile_to_low_level(program: &HighProgram) -> LowProgram {
+pub fn compile_to_low_level(program: &HighProgram) -> LowProgram {
 	let mut low_statements = vec![];
 	for statement in program.statements.iter() {
 		compile_statement_to_low_level_statements(statement, &mut low_statements);
@@ -1484,7 +1483,7 @@ pub(crate) fn compile_to_low_level(program: &HighProgram) -> LowProgram {
 	LowProgram { statements: low_statements }
 }
 
-pub(crate) fn compile_to_binary(program: &LowProgram) -> Binary {
+pub fn compile_to_binary(program: &LowProgram) -> Binary {
 	let mut bin = Binary::new();
 
 	use AsmInstr::*;

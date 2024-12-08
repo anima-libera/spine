@@ -1,0 +1,13 @@
+[package]
+name = "spine_language_server"
+version = "0.1.0"
+description = "Spine language server"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+authors = ["Anima <anim.libera@gmail.com>"]
+
+[dependencies]
+spine_compiler = {path = "../compiler"}
+serde_json = { version = "1.0.133" }
+tokio = { version = "1.41.1", features = ["full"] }
+tower-lsp = { version = "0.20.0" }

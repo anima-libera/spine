@@ -1,22 +1,11 @@
-#![allow(unused)] // For now, WIP stuff gets too yellow for my taste
-
-mod asm;
-#[cfg(test)]
-mod asm_test;
-mod elf;
-mod imm;
-mod lang;
-#[cfg(test)]
-mod lang_test;
-#[cfg(feature = "lsp")]
-mod lsp;
-
 use std::sync::Arc;
 
-use elf::chmod_x;
-use lang::{compile_to_binary, compile_to_low_level, parse, SourceCode};
+use spine_compiler::{
+	elf::chmod_x,
+	lang::{compile_to_binary, compile_to_low_level, parse, SourceCode},
+};
 #[cfg(feature = "lsp")]
-use lsp::run_lsp;
+use spine_language_server::run_lsp;
 
 fn main() {
 	let args: Vec<_> = std::env::args().collect();
@@ -114,6 +103,7 @@ fn main() {
 		println!("Parsing to high level internal representation");
 	}
 	let high_program = parse(Arc::clone(&source_code));
+
 	let errors = high_program.get_errors();
 	if !errors.is_empty() {
 		if verbose {
@@ -131,6 +121,7 @@ fn main() {
 	for warning in high_program.get_warnings() {
 		warning.print();
 	}
+
 	if verbose {
 		println!("Compiling to low level internal representation");
 	}

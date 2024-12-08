@@ -1,3 +1,5 @@
+#![allow(unused)] // For now, WIP stuff gets too yellow for my taste
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -6,9 +8,9 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use crate::lang::{
+use spine_compiler::lang::{
 	parse, CompilationError, CompilationWarning, HighInstruction, HighProgram, HighStatement,
-	LineStartTable, LspPosition, LspRange, Pos, SourceCode,
+	LspPosition, LspRange, Pos, SourceCode,
 };
 
 struct SourceFileData {
@@ -16,12 +18,12 @@ struct SourceFileData {
 	high_program: HighProgram,
 }
 
-struct Backend {
+struct SpineLanguageServer {
 	client: Client,
 	source_files: Mutex<HashMap<PathBuf, Arc<SourceFileData>>>,
 }
 
-impl Backend {
+impl SpineLanguageServer {
 	fn get_source_file_data(&self, source_file_path: PathBuf) -> Option<Arc<SourceFileData>> {
 		let mut source_file_lock = self.source_files.lock();
 		if let Some(source_file) = source_file_lock.as_ref().unwrap().get(&source_file_path) {
@@ -45,11 +47,11 @@ impl Backend {
 		if let Some(source_file) = source_file {
 			let errors = source_file.high_program.get_errors();
 			for error in errors {
-				diagnostics.push(error.get_diagnostic());
+				diagnostics.push(get_diagnostic_from_error(&error));
 			}
 			let warnings = source_file.high_program.get_warnings();
 			for warning in warnings {
-				diagnostics.push(warning.get_diagnostic());
+				diagnostics.push(get_diagnostic_from_warning(&warning));
 			}
 		}
 
@@ -57,71 +59,64 @@ impl Backend {
 	}
 }
 
-impl CompilationError {
-	fn get_diagnostic(&self) -> Diagnostic {
-		match self {
-			CompilationError::UnexpectedCharacter(unexpected_character) => {
-				let range = unexpected_character
-					.pos
-					.clone()
-					.one_char_span()
-					.to_lsp_range()
-					.into();
-				Diagnostic {
-					range,
-					severity: Some(DiagnosticSeverity::ERROR),
-					code: None,
-					code_description: None,
-					source: Some("spine".to_string()),
-					message: self.message(),
-					related_information: None,
-					tags: None,
-					data: None,
-				}
-			},
-		}
+fn get_diagnostic_from_error(error: &CompilationError) -> Diagnostic {
+	match error {
+		CompilationError::UnexpectedCharacter(unexpected_character) => {
+			let range = unexpected_character
+				.pos
+				.clone()
+				.one_char_span()
+				.to_lsp_range();
+			Diagnostic {
+				range: lsp_range_into_range(range),
+				severity: Some(DiagnosticSeverity::ERROR),
+				code: None,
+				code_description: None,
+				source: Some("spine".to_string()),
+				message: error.message(),
+				related_information: None,
+				tags: None,
+				data: None,
+			}
+		},
 	}
 }
 
-impl CompilationWarning {
-	fn get_diagnostic(&self) -> Diagnostic {
-		match self {
-			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
-				let range = statement_span.to_lsp_range().into();
-				Diagnostic {
-					range,
-					severity: Some(DiagnosticSeverity::WARNING),
-					code: None,
-					code_description: None,
-					source: Some("spine".to_string()),
-					message: self.message(),
-					related_information: None,
-					tags: None,
-					data: None,
-				}
-			},
-		}
+fn get_diagnostic_from_warning(warning: &CompilationWarning) -> Diagnostic {
+	match warning {
+		CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
+			let range = statement_span.to_lsp_range();
+			Diagnostic {
+				range: lsp_range_into_range(range),
+				severity: Some(DiagnosticSeverity::WARNING),
+				code: None,
+				code_description: None,
+				source: Some("spine".to_string()),
+				message: warning.message(),
+				related_information: None,
+				tags: None,
+				data: None,
+			}
+		},
 	}
 }
 
-impl From<LspRange> for Range {
-	fn from(value: LspRange) -> Range {
-		Range {
-			start: Position {
-				line: value.start.zero_based_line_number,
-				character: value.start.index_in_bytes_in_line,
-			},
-			end: Position {
-				line: value.end.zero_based_line_number,
-				character: value.end.index_in_bytes_in_line,
-			},
-		}
+fn lsp_range_into_range(lsp_range: LspRange) -> Range {
+	Range {
+		start: Position {
+			line: lsp_range.start.zero_based_line_number,
+			character: lsp_range.start.index_in_bytes_in_line,
+		},
+		end: Position {
+			line: lsp_range.end.zero_based_line_number,
+			character: lsp_range.end.index_in_bytes_in_line,
+		},
 	}
 }
 
 #[tower_lsp::async_trait]
-impl LanguageServer for Backend {
-	async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+impl LanguageServer for SpineLanguageServer {
+	async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
 		//params.capabilities.text_document.unwrap().diagnostic.unwrap().
 		Ok(InitializeResult {
 			server_info: Some(ServerInfo { name: "Spine language server".to_string(), version: None }),
@@ -359,7 +354,7 @@ impl LanguageServer for Backend {
 						break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
 					}
 				},
-				HighStatement::Error { span, .. } => {
+				HighStatement::Error { .. } => {
 					break 'token_thingy None;
 				},
 			}
@@ -394,7 +389,7 @@ impl LanguageServer for Backend {
 				(statement_span, documentation)
 			},
 			Some(TokenThingy::Instruction(instruction)) => {
-				let documentation = (match instruction {
+				let documentation = match instruction {
 					HighInstruction::IntegerLiteral(integer_literal) => {
 						format!("Integer literal, of value {}", integer_literal.value)
 					},
@@ -407,7 +402,7 @@ impl LanguageServer for Backend {
 					HighInstruction::StringLiteral(_) => "String literal".to_string(),
 					HighInstruction::ExplicitKeyword(_) => "Explicit keyword".to_string(),
 					HighInstruction::Identifier(_) => "Identifier".to_string(),
-				});
+				};
 				(instruction.span().clone(), documentation)
 			},
 		};
@@ -418,7 +413,7 @@ impl LanguageServer for Backend {
 				kind: MarkupKind::Markdown,
 				value: format!("```spine\n{bit_of_code}\n```\n---\n{documentation}"),
 			}),
-			range: Some(range.into()),
+			range: Some(lsp_range_into_range(range)),
 		}))
 	}
 
@@ -450,14 +445,14 @@ impl LanguageServer for Backend {
 				actions.push(CodeActionOrCommand::CodeAction(CodeAction {
 					title: fix_by_rewrite.description,
 					kind: Some(CodeActionKind::QUICKFIX),
-					diagnostics: Some(vec![warning.get_diagnostic()]),
+					diagnostics: Some(vec![get_diagnostic_from_warning(&warning)]),
 					edit: Some(WorkspaceEdit {
 						changes: Some({
 							let mut map = HashMap::new();
 							map.insert(
 								params.text_document.uri.clone(),
 								vec![TextEdit {
-									range: warning.span().to_lsp_range().into(),
+									range: lsp_range_into_range(warning.span().to_lsp_range()),
 									new_text: fix_by_rewrite.new_code,
 								}],
 							);
@@ -478,7 +473,7 @@ impl LanguageServer for Backend {
 	}
 }
 
-pub(crate) fn run_lsp() {
+pub fn run_lsp() {
 	let async_runtime = tokio::runtime::Builder::new_current_thread()
 		.thread_name("Tokio Runtime Thread")
 		.enable_io()
@@ -487,8 +482,10 @@ pub(crate) fn run_lsp() {
 
 	async_runtime.block_on(async {
 		let (stdin, stdout) = (tokio::io::stdin(), tokio::io::stdout());
-		let (service, socket) =
-			LspService::new(|client| Backend { client, source_files: Mutex::new(HashMap::new()) });
+		let (service, socket) = LspService::new(|client| SpineLanguageServer {
+			client,
+			source_files: Mutex::new(HashMap::new()),
+		});
 		Server::new(stdin, stdout, socket).serve(service).await;
 	});
 }
