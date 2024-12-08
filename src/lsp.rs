@@ -457,8 +457,8 @@ impl LanguageServer for Backend {
 							);
 							map
 						}),
-						document_changes: None,   // is this actually required?
-						change_annotations: None, // is this actually required?
+						document_changes: None,
+						change_annotations: None,
 					}),
 					command: None,
 					is_preferred: Some(true),

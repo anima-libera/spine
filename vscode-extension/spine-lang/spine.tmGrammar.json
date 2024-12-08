@@ -45,7 +45,7 @@
 			}
 		},
 		"arbitrary-radix-integer-literal": {
-			"match": "(0(?:r|R)\\{\\d+\\})(\\h+)",
+			"match": "(0(?:r|R)\\{\\d+\\})([0-9a-zA-Z]+)",
 			"captures": {
 				"1": { "name": "storage.modifier.radix-prefix.arbitrary.spine" },
 				"2": { "name": "constant.numeric.arbitrary-radix.spine" }

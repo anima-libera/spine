@@ -642,10 +642,10 @@ impl Token {
 fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
 	let start = reader.next_pos().unwrap();
 	assert_eq!(reader.pop(), Some('\\'));
-	let hex_digit_to_value = |hex_digit| match hex_digit {
-		'0'..='9' => hex_digit as u32 - '0' as u32,
-		'a'..='f' => hex_digit as u32 - 'a' as u32 + 10,
-		'A'..='F' => hex_digit as u32 - 'A' as u32 + 10,
+	let any_radix_digit_to_value = |any_radix_digit| match any_radix_digit {
+		'0'..='9' => any_radix_digit as u32 - '0' as u32,
+		'a'..='z' => any_radix_digit as u32 - 'a' as u32 + 10,
+		'A'..='Z' => any_radix_digit as u32 - 'A' as u32 + 10,
 		_ => panic!(),
 	};
 	let produced_character = match reader.pop().unwrap() {
@@ -653,7 +653,7 @@ fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
 			// `\x1b`, unicode code point (in `0..=255`) with exactly two hex digits.
 			let high = reader.pop().unwrap();
 			let low = reader.pop().unwrap();
-			let value = hex_digit_to_value(high) * 16 + hex_digit_to_value(low);
+			let value = any_radix_digit_to_value(high) * 16 + any_radix_digit_to_value(low);
 			char::from_u32(value).unwrap()
 		},
 		'u' | 'U' => {
@@ -665,7 +665,7 @@ fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
 				if character == '}' {
 					break;
 				}
-				value = value * 16 + hex_digit_to_value(character);
+				value = value * 16 + any_radix_digit_to_value(character);
 			}
 			char::from_u32(value).unwrap()
 		},
@@ -679,7 +679,7 @@ fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
 					break;
 				}
 				assert!(character.is_ascii_digit());
-				value = value * 10 + hex_digit_to_value(character);
+				value = value * 10 + any_radix_digit_to_value(character);
 			}
 			char::from_u32(value).unwrap()
 		},
@@ -763,7 +763,7 @@ fn parse_integer_literal(reader: &mut Reader) -> Token {
 		// We have to get the span of the actual number part (like `6af2` or `10101`)
 		// so that we can parse it (given the radix number).
 		let radix_number = radix_prefix.kind.radix_number();
-		if 16 < radix_number {
+		if 36 < radix_number {
 			unimplemented!(); // yet
 		}
 		reader.skip_while(|c| c.is_alphanumeric());
