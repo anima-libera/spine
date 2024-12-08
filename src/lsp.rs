@@ -395,13 +395,19 @@ impl LanguageServer for Backend {
 			},
 			Some(TokenThingy::Instruction(instruction)) => {
 				let documentation = (match instruction {
-					HighInstruction::IntegerLiteral(_) => "Integer literal",
-					HighInstruction::CharacterLiteral(_) => "Character literal",
-					HighInstruction::StringLiteral(_) => "String literal",
-					HighInstruction::ExplicitKeyword(_) => "Explicit keyword",
-					HighInstruction::Identifier(_) => "Identifier",
-				})
-				.to_string();
+					HighInstruction::IntegerLiteral(integer_literal) => {
+						format!("Integer literal, of value {}", integer_literal.value)
+					},
+					HighInstruction::CharacterLiteral(character_literal) => {
+						format!(
+							"Character literal, of unicode code point U+{c:02X} ({c})",
+							c = character_literal.value as u32
+						)
+					},
+					HighInstruction::StringLiteral(_) => "String literal".to_string(),
+					HighInstruction::ExplicitKeyword(_) => "Explicit keyword".to_string(),
+					HighInstruction::Identifier(_) => "Identifier".to_string(),
+				});
 				(instruction.span().clone(), documentation)
 			},
 		};
