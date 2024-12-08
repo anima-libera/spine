@@ -1056,6 +1056,20 @@ impl CompilationWarning {
 	pub(crate) fn print(&self) {
 		print_compilation_message(MessageKind::Warning, self.span(), self.message());
 	}
+
+	pub(crate) fn fix_by_rewrite_proposal(&self) -> Option<FixByRewrite> {
+		match self {
+			CompilationWarning::MissingTerminatingSemicolon { statement_span } => Some(FixByRewrite {
+				description: "Add a terminating semicolon \';\'".to_string(),
+				new_code: statement_span.as_str().to_string() + ";",
+			}),
+		}
+	}
+}
+
+pub(crate) struct FixByRewrite {
+	pub(crate) description: String,
+	pub(crate) new_code: String,
 }
 
 impl HighProgram {

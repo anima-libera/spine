@@ -45,48 +45,62 @@ impl Backend {
 		if let Some(source_file) = source_file {
 			let errors = source_file.high_program.get_errors();
 			for error in errors {
-				match &error {
-					CompilationError::UnexpectedCharacter(unexpected_character) => {
-						diagnostics.push(Diagnostic {
-							range: unexpected_character
-								.pos
-								.clone()
-								.one_char_span()
-								.to_lsp_range()
-								.into(),
-							severity: Some(DiagnosticSeverity::ERROR),
-							code: None,
-							code_description: None,
-							source: Some("spine".to_string()),
-							message: error.message(),
-							related_information: None,
-							tags: None,
-							data: None,
-						});
-					},
-				}
+				diagnostics.push(error.get_diagnostic());
 			}
 			let warnings = source_file.high_program.get_warnings();
 			for warning in warnings {
-				match &warning {
-					CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
-						diagnostics.push(Diagnostic {
-							range: statement_span.to_lsp_range().into(),
-							severity: Some(DiagnosticSeverity::WARNING),
-							code: None,
-							code_description: None,
-							source: Some("spine".to_string()),
-							message: warning.message(),
-							related_information: None,
-							tags: None,
-							data: None,
-						});
-					},
-				}
+				diagnostics.push(warning.get_diagnostic());
 			}
 		}
 
 		diagnostics
+	}
+}
+
+impl CompilationError {
+	fn get_diagnostic(&self) -> Diagnostic {
+		match self {
+			CompilationError::UnexpectedCharacter(unexpected_character) => {
+				let range = unexpected_character
+					.pos
+					.clone()
+					.one_char_span()
+					.to_lsp_range()
+					.into();
+				Diagnostic {
+					range,
+					severity: Some(DiagnosticSeverity::ERROR),
+					code: None,
+					code_description: None,
+					source: Some("spine".to_string()),
+					message: self.message(),
+					related_information: None,
+					tags: None,
+					data: None,
+				}
+			},
+		}
+	}
+}
+
+impl CompilationWarning {
+	fn get_diagnostic(&self) -> Diagnostic {
+		match self {
+			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
+				let range = statement_span.to_lsp_range().into();
+				Diagnostic {
+					range,
+					severity: Some(DiagnosticSeverity::WARNING),
+					code: None,
+					code_description: None,
+					source: Some("spine".to_string()),
+					message: self.message(),
+					related_information: None,
+					tags: None,
+					data: None,
+				}
+			},
+		}
 	}
 }
 
@@ -124,6 +138,11 @@ impl LanguageServer for Backend {
 					inter_file_dependencies: true,
 					workspace_diagnostics: false,
 					work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
+				})),
+				code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+					code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+					work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
+					resolve_provider: None,
 				})),
 				..Default::default()
 			},
@@ -413,6 +432,43 @@ impl LanguageServer for Backend {
 				},
 			}),
 		))
+	}
+
+	async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
+		let source_file_path = params.text_document.uri.to_file_path().unwrap();
+		let source_file = self.get_source_file_data(source_file_path);
+
+		let mut actions = vec![];
+		for warning in source_file.unwrap().high_program.get_warnings() {
+			if let Some(fix_by_rewrite) = warning.fix_by_rewrite_proposal() {
+				actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+					title: fix_by_rewrite.description,
+					kind: Some(CodeActionKind::QUICKFIX),
+					diagnostics: Some(vec![warning.get_diagnostic()]),
+					edit: Some(WorkspaceEdit {
+						changes: Some({
+							let mut map = HashMap::new();
+							map.insert(
+								params.text_document.uri.clone(),
+								vec![TextEdit {
+									range: warning.span().to_lsp_range().into(),
+									new_text: fix_by_rewrite.new_code,
+								}],
+							);
+							map
+						}),
+						document_changes: None,   // is this actually required?
+						change_annotations: None, // is this actually required?
+					}),
+					command: None,
+					is_preferred: Some(true),
+					disabled: None,
+					data: None,
+				}));
+			}
+		}
+
+		Ok(Some(actions))
 	}
 }
 
