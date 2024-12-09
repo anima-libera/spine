@@ -13,7 +13,7 @@ kwprintstr "Hello, World!\n";
 	kwprintchar 0r{8}141;   -- arbitrary radix (here 8, so octal)
 	kwprintchar 0r{36}2p;   -- arbitrary radix (here 36)
 
-	kwprintchar '\n';
+	kwprintchar '\n'; jj; aaaa; @ @;
 }
 
 -- Can do this too!

@@ -962,6 +962,10 @@ enum MessageKind {
 }
 
 fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
+	let negative = "\x1b[7m";
+	let no_negative = "\x1b[27m";
+	let bold = "\x1b[1m";
+	let no_bold = "\x1b[22m";
 	let red = "\x1b[31m";
 	let yellow = "\x1b[33m";
 	let color = match kind {
@@ -973,7 +977,7 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 		MessageKind::Warning => "warning",
 	};
 	let default_color = "\x1b[39m";
-	println!("{color}{message_kind_name}:{default_color} {message}");
+	println!("{bold}{color}{message_kind_name}:{default_color} {message}{no_bold}");
 	let (one_based_line_start, one_based_line_end) = span.one_based_line_range();
 	if one_based_line_start == one_based_line_end {
 		let one_based_line_number = one_based_line_start;
