@@ -580,7 +580,7 @@ pub struct ExplicitKeyword {
 	pub(crate) keyword: Option<ExplicitKeywordWhich>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Identifier {
 	pub(crate) span: Span,
 	pub(crate) name: String,
@@ -842,7 +842,8 @@ fn parse_word(reader: &mut Reader) -> Token {
 		};
 		Token::ExplicitKeyword(ExplicitKeyword { span, keyword })
 	} else {
-		unimplemented!()
+		let name = word.to_string();
+		Token::Identifier(Identifier { span, name })
 	}
 }
 
@@ -1004,14 +1005,16 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 
 pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
+	UnknownIdentifier(Identifier),
 }
 
 impl CompilationError {
-	pub(crate) fn span(&self) -> Span {
+	pub fn span(&self) -> Span {
 		match self {
 			CompilationError::UnexpectedCharacter(unexpected_character) => {
 				unexpected_character.pos.clone().one_char_span()
 			},
+			CompilationError::UnknownIdentifier(identifier) => identifier.span.clone(),
 		}
 	}
 
@@ -1022,6 +1025,9 @@ impl CompilationError {
 					"character \'{}\' is unexpected here and causes a parsing error",
 					unexpected_character.character
 				)
+			},
+			CompilationError::UnknownIdentifier(identifier) => {
+				format!("unknown identifier \"{}\"", identifier.name)
 			},
 		}
 	}
@@ -1071,30 +1077,52 @@ pub struct FixByRewrite {
 	pub new_code: String,
 }
 
-impl HighProgram {
-	pub fn get_errors(&self) -> Vec<CompilationError> {
+impl HighStatement {
+	pub fn get_errors_and_warnings(&self) -> (Vec<CompilationError>, Vec<CompilationWarning>) {
 		let mut errors = vec![];
-		for statement in self.statements.iter() {
-			if let HighStatement::Error { unexpected_characters, .. } = statement {
+		let mut warnings = vec![];
+		match self {
+			HighStatement::Error { unexpected_characters, .. } => {
 				for unexpected_character in unexpected_characters.iter() {
 					errors.push(CompilationError::UnexpectedCharacter(
 						unexpected_character.clone(),
 					));
 				}
-			}
+			},
+			HighStatement::Code { instructions, semicolon } => {
+				for instruction in instructions.iter() {
+					if let HighInstruction::Identifier(identifier) = instruction {
+						errors.push(CompilationError::UnknownIdentifier(identifier.clone()));
+					}
+				}
+				if semicolon.is_none() {
+					let statement_span = self.span();
+					warnings.push(CompilationWarning::MissingTerminatingSemicolon { statement_span });
+				}
+			},
+			HighStatement::Block { statements, .. } => {
+				for statement in statements {
+					let (mut sub_errors, mut sub_warnings) = statement.get_errors_and_warnings();
+					errors.append(&mut sub_errors);
+					warnings.append(&mut sub_warnings);
+				}
+			},
+			_ => {},
 		}
-		errors
+		(errors, warnings)
 	}
+}
 
-	pub fn get_warnings(&self) -> Vec<CompilationWarning> {
+impl HighProgram {
+	pub fn get_errors_and_warnings(&self) -> (Vec<CompilationError>, Vec<CompilationWarning>) {
+		let mut errors = vec![];
 		let mut warnings = vec![];
 		for statement in self.statements.iter() {
-			if let HighStatement::Code { semicolon: None, .. } = statement {
-				let statement_span = statement.span();
-				warnings.push(CompilationWarning::MissingTerminatingSemicolon { statement_span });
-			}
+			let (mut sub_errors, mut sub_warnings) = statement.get_errors_and_warnings();
+			errors.append(&mut sub_errors);
+			warnings.append(&mut sub_warnings);
 		}
-		warnings
+		(errors, warnings)
 	}
 }
 
@@ -1274,7 +1302,9 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 			Some(Token::ExplicitKeyword(explicit_keyword)) => {
 				instructions.push(HighInstruction::ExplicitKeyword(explicit_keyword));
 			},
-			Some(Token::Identifier(_)) => unimplemented!(),
+			Some(Token::Identifier(identifier)) => {
+				instructions.push(HighInstruction::Identifier(identifier));
+			},
 			Some(Token::WhitespaceAndComments(_)) => {},
 			Some(Token::Semicolon(span)) => break 'instructions Some(span),
 			Some(Token::CurlyOpen(_span)) => panic!(),

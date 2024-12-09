@@ -104,7 +104,7 @@ fn main() {
 	}
 	let high_program = parse(Arc::clone(&source_code));
 
-	let errors = high_program.get_errors();
+	let (errors, warnings) = high_program.get_errors_and_warnings();
 	if !errors.is_empty() {
 		if verbose {
 			println!("There are compile-time errors, compilation is aborted");
@@ -114,11 +114,10 @@ fn main() {
 		}
 		return;
 	}
-	let warnings = high_program.get_warnings();
 	if !warnings.is_empty() && verbose {
 		println!("There are compile-time warnings but it is no big deal");
 	}
-	for warning in high_program.get_warnings() {
+	for warning in warnings {
 		warning.print();
 	}
 

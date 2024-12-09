@@ -45,11 +45,10 @@ impl SpineLanguageServer {
 
 		let mut diagnostics = vec![];
 		if let Some(source_file) = source_file {
-			let errors = source_file.high_program.get_errors();
+			let (errors, warnings) = source_file.high_program.get_errors_and_warnings();
 			for error in errors {
 				diagnostics.push(get_diagnostic_from_error(&error));
 			}
-			let warnings = source_file.high_program.get_warnings();
 			for warning in warnings {
 				diagnostics.push(get_diagnostic_from_warning(&warning));
 			}
@@ -60,44 +59,32 @@ impl SpineLanguageServer {
 }
 
 fn get_diagnostic_from_error(error: &CompilationError) -> Diagnostic {
-	match error {
-		CompilationError::UnexpectedCharacter(unexpected_character) => {
-			let range = unexpected_character
-				.pos
-				.clone()
-				.one_char_span()
-				.to_lsp_range();
-			Diagnostic {
-				range: lsp_range_into_range(range),
-				severity: Some(DiagnosticSeverity::ERROR),
-				code: None,
-				code_description: None,
-				source: Some("spine".to_string()),
-				message: error.message(),
-				related_information: None,
-				tags: None,
-				data: None,
-			}
-		},
+	let range = lsp_range_into_range(error.span().to_lsp_range());
+	Diagnostic {
+		range,
+		severity: Some(DiagnosticSeverity::ERROR),
+		code: None,
+		code_description: None,
+		source: Some("spine".to_string()),
+		message: error.message(),
+		related_information: None,
+		tags: None,
+		data: None,
 	}
 }
 
 fn get_diagnostic_from_warning(warning: &CompilationWarning) -> Diagnostic {
-	match warning {
-		CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
-			let range = statement_span.to_lsp_range();
-			Diagnostic {
-				range: lsp_range_into_range(range),
-				severity: Some(DiagnosticSeverity::WARNING),
-				code: None,
-				code_description: None,
-				source: Some("spine".to_string()),
-				message: warning.message(),
-				related_information: None,
-				tags: None,
-				data: None,
-			}
-		},
+	let range = lsp_range_into_range(warning.span().to_lsp_range());
+	Diagnostic {
+		range,
+		severity: Some(DiagnosticSeverity::WARNING),
+		code: None,
+		code_description: None,
+		source: Some("spine".to_string()),
+		message: warning.message(),
+		related_information: None,
+		tags: None,
+		data: None,
 	}
 }
 
@@ -395,7 +382,7 @@ impl LanguageServer for SpineLanguageServer {
 					},
 					HighInstruction::CharacterLiteral(character_literal) => {
 						format!(
-							"Character literal, of unicode code point U+{c:02X} ({c})",
+							"Character literal, of unicode code point U+{c:04X} ({c})",
 							c = character_literal.value as u32
 						)
 					},
@@ -440,7 +427,8 @@ impl LanguageServer for SpineLanguageServer {
 		let source_file = self.get_source_file_data(source_file_path);
 
 		let mut actions = vec![];
-		for warning in source_file.unwrap().high_program.get_warnings() {
+		let (errors, warnings) = source_file.unwrap().high_program.get_errors_and_warnings();
+		for warning in warnings {
 			if let Some(fix_by_rewrite) = warning.fix_by_rewrite_proposal() {
 				actions.push(CodeActionOrCommand::CodeAction(CodeAction {
 					title: fix_by_rewrite.description,

@@ -17,7 +17,7 @@ cargo install --git https://github.com/anima-libera/spine.git
 
 or (after `git clone`-ing or downloading the repo)
 ```sh
-cargo install --path . --locked
+cargo install --path cli --locked
 ```
 
 Installing is necessary for the VSCode extension to use the language server.
