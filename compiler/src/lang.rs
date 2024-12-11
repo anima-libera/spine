@@ -1516,6 +1516,10 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 	let mut instructions = vec![];
 	let mut unexpected_characters = vec![];
 	let semicolon = 'instructions: loop {
+		if matches!(tokenizer.peek_token(), Some(Token::CurlyClose(_))) {
+			// Missing terminating semicolon.
+			break 'instructions None;
+		}
 		match tokenizer.pop_token() {
 			Some(Token::IntegerLiteral(integer_literal)) => {
 				instructions.push(HighInstruction::IntegerLiteral(integer_literal));
@@ -1535,7 +1539,7 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 			Some(Token::WhitespaceAndComments(_)) => {},
 			Some(Token::Semicolon(span)) => break 'instructions Some(span),
 			Some(Token::CurlyOpen(_span)) => panic!(),
-			Some(Token::CurlyClose(_span)) => panic!(),
+			Some(Token::CurlyClose(_span)) => unreachable!(),
 			Some(Token::UnexpectedCharacter(unexpected)) => {
 				unexpected_characters.push(unexpected);
 			},

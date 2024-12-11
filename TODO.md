@@ -23,7 +23,6 @@
 ## Feature improvements
 - nested blocks in block comments
 - integer literals with a negative sign
-- last statement in a block statement could miss its terminating semicolon, with a warning
 - more information on hovering integer/character/string literals, such as:
   - the list of character escapes and their meaning
   - is valid ASCII or not
