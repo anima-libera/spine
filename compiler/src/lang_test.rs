@@ -2,7 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
 	elf::chmod_x,
-	lang::{compile_to_binary, compile_to_low_level, parse, SourceCode},
+	lang::{compile_to_binary, compile_to_low_level, parse},
+	src::SourceCode,
 };
 
 fn compile_and_outputs(unique_binary_name: &str, code: impl Into<String>) -> String {

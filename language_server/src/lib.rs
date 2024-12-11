@@ -8,9 +8,11 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use spine_compiler::lang::{
-	parse, CompilationError, CompilationWarning, HighInstruction, HighProgram, HighStatement,
-	LspPosition, LspRange, Pos, SourceCode,
+use spine_compiler::{
+	lang::{
+		parse, CompilationError, CompilationWarning, HighInstruction, HighProgram, HighStatement,
+	},
+	src::{LspPosition, LspRange, Pos, SourceCode},
 };
 
 struct SourceFileData {

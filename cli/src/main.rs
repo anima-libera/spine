@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use spine_compiler::{
 	elf::chmod_x,
-	lang::{compile_to_binary, compile_to_low_level, parse, SourceCode},
+	lang::{compile_to_binary, compile_to_low_level, parse},
+	src::SourceCode,
 };
 #[cfg(feature = "lsp")]
 use spine_language_server::run_lsp;
