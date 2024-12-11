@@ -564,14 +564,10 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 	};
 	let default_color = "\x1b[39m";
 	println!("{bold}{color}{message_kind_name}:{default_color} {message}{no_bold}");
-	let (one_based_line_start, one_based_line_end) = span.one_based_line_range();
-	if one_based_line_start == one_based_line_end {
-		let one_based_line_number = one_based_line_start;
-		let zero_based_line_number = one_based_line_number - 1;
-		let line_span = span
-			.source()
-			.line_content_span(zero_based_line_number)
-			.unwrap();
+	let (line_start, line_end) = span.line_range();
+	if line_start == line_end {
+		let line_number = line_start;
+		let line_span = span.source().line_content_span(line_number).unwrap();
 		let line_text = line_span.as_str();
 		let span_start_in_line_in_chars = span.start_pos().pos_simple.index_in_chars
 			- line_span.start_pos().pos_simple.index_in_chars;
@@ -588,7 +584,8 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 			.unwrap()
 			.0;
 		eprintln!(
-			" {one_based_line_number} | {}{color}{}{default_color}{}",
+			" {} | {}{color}{}{default_color}{}",
+			line_number.one_based(),
 			&line_text[..span_start_in_line_in_bytes],
 			&line_text[span_start_in_line_in_bytes..(span_end_in_line_in_bytes + 1)],
 			&line_text[(span_end_in_line_in_bytes + 1)..].trim_end(),

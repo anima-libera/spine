@@ -9,12 +9,16 @@ use std::{fmt::Debug, path::Path, sync::Arc};
 /// Used in [`Arc`]s so that many objects can access it.
 /// For example [`SourceCodeSpan`]s have an `Arc` to the source code they are a slice of.
 ///
-/// `Arc` instead of `Rc` because [`tower_lsp::LanguageServer`] requires `Send` and `Sync`
+/// `Arc` instead of `Rc` because `tower_lsp::LanguageServer`` requires `Send` and `Sync`
 /// so the language server needs to be `Sync` and `Rc` is not.
 #[derive(Debug)]
 pub struct SourceCode {
-	pub text: String,
-	pub name: String,
+	/// The content of this piece of source code.
+	/// If this comes from a file then this is the content of the file.
+	text: String,
+	/// The name of this piece of the source code.
+	/// If this comes from a file then this is the file path.
+	name: String,
 	line_starts: LineStartTable,
 }
 
@@ -41,15 +45,12 @@ impl SourceCode {
 
 	/// Span of the line of the given zero-based line number,
 	/// excluding the terminating newline character (if any).
-	pub(crate) fn line_content_span(
-		self: &Arc<Self>,
-		zero_based_line_number: usize,
-	) -> Option<Span> {
-		let line_start = self.line_starts.table.get(zero_based_line_number)?;
+	pub(crate) fn line_content_span(self: &Arc<Self>, line_number: LineNumber) -> Option<Span> {
+		let line_start = self.line_starts.table.get(line_number.zero_based())?;
 		let line_start = PosSimple {
 			index_in_bytes: line_start.index_in_bytes,
 			index_in_chars: line_start.index_in_chars,
-			zero_based_line_number,
+			line_number,
 		};
 		let mut reader = Reader::start_at(line_start.with_source(Arc::clone(self)));
 		reader.skip_while(|character| character != '\n');
@@ -59,6 +60,48 @@ impl SourceCode {
 			start: line_start,
 			end: line_end.pos_simple,
 		})
+	}
+}
+
+/// A line number in some source code.
+///
+/// It removes the ambiguity between zero-based and one-based line numbers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineNumber {
+	zero_based_line_number: usize,
+}
+
+impl LineNumber {
+	/// Get the line number as a zero-based number
+	/// (so a line number that assumes the first line is 0).
+	///
+	/// Nice for LSP (it uses zero-based line numbers) or arrays of lines.
+	pub fn zero_based(self) -> usize {
+		self.zero_based_line_number
+	}
+
+	/// Get the line number as a one-based number
+	/// (so a line number that assumes the first line is 1).
+	///
+	/// Nice for displaying information to users, as IDEs display one-based line numbers.
+	pub fn one_based(self) -> usize {
+		self.zero_based_line_number + 1
+	}
+
+	fn min(self, other: LineNumber) -> LineNumber {
+		LineNumber {
+			zero_based_line_number: self
+				.zero_based_line_number
+				.min(other.zero_based_line_number),
+		}
+	}
+
+	fn max(self, other: LineNumber) -> LineNumber {
+		LineNumber {
+			zero_based_line_number: self
+				.zero_based_line_number
+				.max(other.zero_based_line_number),
+		}
 	}
 }
 
@@ -275,7 +318,7 @@ pub(crate) struct PosSimple {
 	pub(crate) index_in_bytes: usize,
 	/// Zero-based.
 	pub(crate) index_in_chars: usize,
-	pub(crate) zero_based_line_number: usize,
+	pub(crate) line_number: LineNumber,
 }
 
 impl PartialEq for Pos {
@@ -301,7 +344,7 @@ impl Pos {
 				pos_simple: PosSimple {
 					index_in_bytes: 0,
 					index_in_chars: 0,
-					zero_based_line_number: 0,
+					line_number: LineNumber { zero_based_line_number: 0 },
 				},
 			})
 		}
@@ -372,8 +415,11 @@ impl PosSimple {
 		next_character_exists.then(|| PosSimple {
 			index_in_bytes: self.index_in_bytes + character.len_utf8(),
 			index_in_chars: self.index_in_chars + 1,
-			zero_based_line_number: self.zero_based_line_number
-				+ if character == '\n' { 1 } else { 0 },
+			line_number: if character == '\n' {
+				LineNumber { zero_based_line_number: self.line_number.zero_based() + 1 }
+			} else {
+				self.line_number
+			},
 		})
 	}
 
@@ -388,12 +434,15 @@ impl PosSimple {
 						.chars()
 						.next()
 						.unwrap();
-					let zero_based_line_number =
-						self.zero_based_line_number - if character == '\n' { 1 } else { 0 };
+					let line_number = if character == '\n' {
+						LineNumber { zero_based_line_number: self.line_number.zero_based() - 1 }
+					} else {
+						self.line_number
+					};
 					return Some(PosSimple {
 						index_in_bytes: prev_char_index_in_bytes_try,
 						index_in_chars: self.index_in_chars - 1,
-						zero_based_line_number,
+						line_number,
 					});
 				}
 			}
@@ -405,9 +454,7 @@ impl PosSimple {
 		PosSimple {
 			index_in_bytes: self.index_in_bytes.min(other.index_in_bytes),
 			index_in_chars: self.index_in_chars.min(other.index_in_chars),
-			zero_based_line_number: self
-				.zero_based_line_number
-				.min(other.zero_based_line_number),
+			line_number: self.line_number.min(other.line_number),
 		}
 	}
 
@@ -415,13 +462,12 @@ impl PosSimple {
 		PosSimple {
 			index_in_bytes: self.index_in_bytes.max(other.index_in_bytes),
 			index_in_chars: self.index_in_chars.max(other.index_in_chars),
-			zero_based_line_number: self
-				.zero_based_line_number
-				.max(other.zero_based_line_number),
+			line_number: self.line_number.max(other.line_number),
 		}
 	}
 }
 
+/// Range of characters in a [`SourceCode`], can be empty.
 #[derive(Clone)]
 pub struct Span {
 	source: Arc<SourceCode>,
@@ -433,13 +479,13 @@ pub struct Span {
 
 impl Debug for Span {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		if self.start.zero_based_line_number == self.end.zero_based_line_number {
+		if self.start.line_number == self.end.line_number {
 			write!(
 				f,
 				"ch{}-{} l{}",
 				self.start.index_in_chars,
 				self.end.index_in_chars,
-				self.start.zero_based_line_number + 1
+				self.start.line_number.one_based()
 			)
 		} else {
 			write!(
@@ -447,8 +493,8 @@ impl Debug for Span {
 				"ch{}-{} l{}-{}",
 				self.start.index_in_chars,
 				self.end.index_in_chars,
-				self.start.zero_based_line_number + 1,
-				self.end.zero_based_line_number + 1
+				self.start.line_number.one_based(),
+				self.end.line_number.one_based()
 			)
 		}
 	}
@@ -555,10 +601,10 @@ pub struct LspRange {
 impl Pos {
 	fn to_lsp_position(&self) -> LspPosition {
 		let line_start_in_bytes =
-			self.source.line_starts.table[self.pos_simple.zero_based_line_number].index_in_bytes;
+			self.source.line_starts.table[self.pos_simple.line_number.zero_based()].index_in_bytes;
 		let index_in_bytes_in_line = (self.pos_simple.index_in_bytes - line_start_in_bytes) as u32;
 		LspPosition {
-			zero_based_line_number: self.pos_simple.zero_based_line_number as u32,
+			zero_based_line_number: self.pos_simple.line_number.zero_based() as u32,
 			index_in_bytes_in_line,
 		}
 	}
@@ -569,18 +615,8 @@ impl Pos {
 }
 
 impl Span {
-	pub(crate) fn zero_based_line_range(&self) -> (usize, usize) {
-		(
-			self.start.zero_based_line_number,
-			self.end.zero_based_line_number,
-		)
-	}
-
-	pub fn one_based_line_range(&self) -> (usize, usize) {
-		(
-			self.start.zero_based_line_number + 1,
-			self.end.zero_based_line_number + 1,
-		)
+	pub fn line_range(&self) -> (LineNumber, LineNumber) {
+		(self.start.line_number, self.end.line_number)
 	}
 
 	pub fn contains_lsp_position(&self, lsp_pos: LspPosition) -> bool {

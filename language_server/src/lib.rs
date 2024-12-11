@@ -350,7 +350,7 @@ impl LanguageServer for SpineLanguageServer {
 			None
 		};
 		let statement_span = statement.span();
-		let statement_one_based_line_range = statement.span().one_based_line_range();
+		let statement_line_range = statement.span().line_range();
 		let (span, documentation) = match token_thingy {
 			None => return Ok(None),
 			Some(TokenThingy::Semicolon(_))
@@ -366,12 +366,13 @@ impl LanguageServer for SpineLanguageServer {
 							format!("Block statement of {} statements", statements.len()),
 						HighStatement::Error { .. } => "Error".to_string(),
 					},
-					if statement_one_based_line_range.0 == statement_one_based_line_range.1 {
-						format!("On line {}", statement_one_based_line_range.0)
+					if statement_line_range.0 == statement_line_range.1 {
+						format!("On line {}", statement_line_range.0.one_based())
 					} else {
 						format!(
 							"On lines {}-{}",
-							statement_one_based_line_range.0, statement_one_based_line_range.1
+							statement_line_range.0.one_based(),
+							statement_line_range.1.one_based()
 						)
 					}
 				);
