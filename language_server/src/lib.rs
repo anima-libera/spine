@@ -227,8 +227,8 @@ impl LanguageServer for SpineLanguageServer {
 					..CompletionItem::default()
 				},
 				CompletionItem {
-					label: "kwprintchar".to_string(),
-					insert_text: Some("kwprintchar".to_string()),
+					label: "kwpc".to_string(),
+					insert_text: Some("kwpc".to_string()),
 					detail: Some("( char -- ) Prints character".to_string()),
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
@@ -240,8 +240,8 @@ impl LanguageServer for SpineLanguageServer {
 					..CompletionItem::default()
 				},
 				CompletionItem {
-					label: "kwprintstr".to_string(),
-					insert_text: Some("kwprintstr".to_string()),
+					label: "kwps".to_string(),
+					insert_text: Some("kwps".to_string()),
 					detail: Some("( ptr len -- ) Prints string".to_string()),
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {

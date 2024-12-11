@@ -1,23 +1,23 @@
 -- Hello world!!
-kwprintstr "Hello, World!\n";
+kwps "Hello, World!\n";
 
 {
 	-- All of these print `a`, they all demonstrate different literal syntaxes.
-	kwprintchar 'a';        -- character
-	kwprintchar '\x61';     -- character with two-hexadecimal-digits ASCII escape
-	kwprintchar '\u{61}';   -- character with hexadecimal-digits Unicode escape
-	kwprintchar '\d{97}';   -- character with decimal-digits Unicode escape
-	kwprintchar 97;         -- decimal
-	kwprintchar 0x61;       -- hexadecimal
-	kwprintchar 0b01100001; -- binary
-	kwprintchar 0r{8}141;   -- arbitrary radix (here 8, so octal)
-	kwprintchar 0r{36}2p;   -- arbitrary radix (here 36)
+	kwpc 'a';        -- character
+	kwpc '\x61';     -- character with two-hexadecimal-digits ASCII escape
+	kwpc '\u{61}';   -- character with hexadecimal-digits Unicode escape
+	kwpc '\d{97}';   -- character with decimal-digits Unicode escape
+	kwpc 97;         -- decimal
+	kwpc 0x61;       -- hexadecimal
+	kwpc 0b01100001; -- binary
+	kwpc 0r{8}141;   -- arbitrary radix (here 8, so octal)
+	kwpc 0r{36}2p;   -- arbitrary radix (here 36)
 
-	kwprintchar '\n';
+	kwpc '\n';
 }
 
 -- Can do this too!
-kwprintchar kwprintchar kwprintchar kwprintchar 'o' 'w' 'o' '\n';
+kwpc kwpc kwpc kwpc 'o' 'w' 'o' '\n';
 
 -- Empty statement, very useful >w<
 ;

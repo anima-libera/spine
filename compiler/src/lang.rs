@@ -43,29 +43,23 @@ impl SourceCode {
 		&self.text[pos.index_in_bytes..]
 	}
 
-	fn line_span(self: &Arc<Self>, zero_based_line_number: usize) -> Option<Span> {
+	/// Span of the line of the given zero-based line number,
+	/// excluding the terminating newline character (if any).
+	fn line_content_span(self: &Arc<Self>, zero_based_line_number: usize) -> Option<Span> {
 		let line_start = self.line_starts.table.get(zero_based_line_number)?;
 		let line_start = PosSimple {
 			index_in_bytes: line_start.index_in_bytes,
 			index_in_chars: line_start.index_in_chars,
 			zero_based_line_number,
 		};
-		let next_line_start = self.line_starts.table.get(zero_based_line_number + 1);
-		let line_end = if let Some(next_line_start) = next_line_start {
-			let next_line_start = PosSimple {
-				index_in_bytes: next_line_start.index_in_bytes,
-				index_in_chars: next_line_start.index_in_chars,
-				zero_based_line_number: zero_based_line_number + 1,
-			};
-			next_line_start.prev(self).unwrap()
-		} else {
-			PosSimple {
-				index_in_bytes: self.text.len(),
-				index_in_chars: self.line_starts.len_in_chars,
-				zero_based_line_number,
-			}
-		};
-		Some(Span { source: Arc::clone(self), start: line_start, end: line_end })
+		let mut reader = Reader::start_at(line_start.with_source(Arc::clone(self)));
+		reader.skip_while(|character| character != '\n');
+		let line_end = reader.prev_pos().unwrap();
+		Some(Span {
+			source: Arc::clone(self),
+			start: line_start,
+			end: line_end.pos_simple,
+		})
 	}
 }
 
@@ -133,6 +127,13 @@ impl Reader {
 			.as_ref()
 			.map(Pos::without_source);
 		Reader { source, next, prev: None }
+	}
+
+	fn start_at(pos: Pos) -> Reader {
+		let next = pos.next().map(|p| p.pos_simple);
+		let prev = Some(pos.pos_simple);
+		let source = pos.source;
+		Reader { source, next, prev }
 	}
 
 	/// Position of the previously popped character.
@@ -356,6 +357,9 @@ impl Pos {
 
 impl PosSimple {
 	fn with_source(&self, source: Arc<SourceCode>) -> Pos {
+		if source.text.len() <= self.index_in_bytes {
+			panic!("Pos cannot be ouf of bounds of the source")
+		}
 		Pos { source, pos_simple: *self }
 	}
 
@@ -516,14 +520,12 @@ impl Iterator for SpanPositions {
 	type Item = Pos;
 	fn next(&mut self) -> Option<Pos> {
 		let res = self.next_pos.take();
-		self.next_pos = res.as_ref().and_then(|next| {
-			next.next().and_then(|pos| {
-				if self.span.end == pos.pos_simple {
-					None
-				} else {
-					Some(pos)
-				}
-			})
+		self.next_pos = res.as_ref().and_then(|current| {
+			if current.pos_simple == self.span.end {
+				None
+			} else {
+				current.next()
+			}
 		});
 		res
 	}
@@ -1010,8 +1012,8 @@ fn parse_word(reader: &mut Reader) -> Token {
 	if word.starts_with("kw") {
 		// Explicit keyword
 		let keyword = match word {
-			"kwprintchar" => Some(ExplicitKeywordWhich::PrintChar),
-			"kwprintstr" => Some(ExplicitKeywordWhich::PrintStr),
+			"kwpc" => Some(ExplicitKeywordWhich::PrintChar),
+			"kwps" => Some(ExplicitKeywordWhich::PrintStr),
 			"kwadd" => Some(ExplicitKeywordWhich::Add),
 			"kwexit" => Some(ExplicitKeywordWhich::Exit),
 			_ => None,
@@ -1158,7 +1160,10 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 	if one_based_line_start == one_based_line_end {
 		let one_based_line_number = one_based_line_start;
 		let zero_based_line_number = one_based_line_number - 1;
-		let line_span = span.source.line_span(zero_based_line_number).unwrap();
+		let line_span = span
+			.source
+			.line_content_span(zero_based_line_number)
+			.unwrap();
 		let line_text = line_span.as_str();
 		let span_start_in_line_in_chars = span.start.index_in_chars - line_span.start.index_in_chars;
 		let span_end_in_line_in_chars = span.end.index_in_chars - line_span.start.index_in_chars;
