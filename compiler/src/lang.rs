@@ -554,6 +554,7 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 	let no_bold = "\x1b[22m";
 	let red = "\x1b[31m";
 	let yellow = "\x1b[33m";
+	let blue = "\x1b[96m";
 	let color = match kind {
 		MessageKind::Error => red,
 		MessageKind::Warning => yellow,
@@ -572,7 +573,7 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 		let line_span_before = line_span.before_excluding(span.start_pos().without_source());
 		let line_span_after = line_span.after_excluding(span.end_pos().without_source());
 		eprintln!(
-			" {} | {}{color}{}{default_color}{}",
+			" {blue}{}{default_color} {blue}|{default_color} {}{color}{}{default_color}{}",
 			line_number.one_based(),
 			line_span_before
 				.as_ref()
@@ -594,10 +595,12 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 			eprint!(" ");
 		}
 		eprint!("{color}");
-		for _ in 0..span.as_str().len() {
+		for _ in 0..span.as_str().chars().count() {
 			eprint!("^");
 		}
-		eprintln!("{default_color}");
+		let start_in_line = span.start_pos().zero_based_char_index_in_line();
+		let end_in_line = span.end_pos().zero_based_char_index_in_line();
+		eprintln!("{default_color} {blue}{start_in_line}-{end_in_line}{default_color}");
 	} else {
 		unimplemented!() // yet
 	}

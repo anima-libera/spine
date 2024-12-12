@@ -88,6 +88,7 @@ impl LineNumber {
 		self.zero_based_line_number + 1
 	}
 
+	/// Returns the smaller of two line numbers.
 	fn min(self, other: LineNumber) -> LineNumber {
 		LineNumber {
 			zero_based_line_number: self
@@ -96,6 +97,7 @@ impl LineNumber {
 		}
 	}
 
+	/// Returns the bigger of two line numbers.
 	fn max(self, other: LineNumber) -> LineNumber {
 		LineNumber {
 			zero_based_line_number: self
@@ -315,10 +317,10 @@ pub struct Pos {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PosSimple {
 	/// Index in bytes of the UTF-8 encoded version of the source code.
-	pub(crate) index_in_bytes: usize,
+	index_in_bytes: usize,
 	/// Zero-based.
-	pub(crate) index_in_chars: usize,
-	pub(crate) line_number: LineNumber,
+	index_in_chars: usize,
+	line_number: LineNumber,
 }
 
 impl PartialEq for Pos {
@@ -350,6 +352,7 @@ impl PartialOrd for PosSimple {
 }
 
 impl Pos {
+	/// Position of the first character in the given source code, if any.
 	fn first_character(source: Arc<SourceCode>) -> Option<Pos> {
 		if source.text.is_empty() {
 			// There is no first character in an empty text.
@@ -370,6 +373,7 @@ impl Pos {
 		self.pos_simple
 	}
 
+	/// Returns the smaller of two character positions, meaning the one that comes first.
 	pub(crate) fn min(self, other: &Pos) -> Pos {
 		Pos {
 			source: self.source,
@@ -377,6 +381,7 @@ impl Pos {
 		}
 	}
 
+	/// Returns the bigger of two character positions, meaning the one that comes last.
 	pub(crate) fn max(self, other: &Pos) -> Pos {
 		Pos {
 			source: self.source,
@@ -384,6 +389,7 @@ impl Pos {
 		}
 	}
 
+	/// The position after `self`, if it exists in the source code (so not if it is end-of-file).
 	fn next(&self) -> Option<Pos> {
 		self
 			.without_source()
@@ -391,6 +397,7 @@ impl Pos {
 			.map(|pos| pos.with_source(Arc::clone(&self.source)))
 	}
 
+	/// Transforms a character position into a character span that spans just this character.
 	pub fn one_char_span(self) -> Span {
 		let pos_simple = self.without_source();
 		Span { source: self.source, start: pos_simple, end: pos_simple }
@@ -405,15 +412,29 @@ impl Pos {
 		self.clone().one_char_span().extend_to(other)
 	}
 
+	/// Gets the span
+	/// from `self` (included) to the last character popped from the reader (included).
 	pub(crate) fn span_to_prev(&self, reader: &Reader) -> Span {
 		self.span_to(&reader.prev_pos().unwrap())
 	}
 
+	/// Reads the character that `self` is the position of.
 	pub(crate) fn as_char(&self) -> char {
 		self.source.text[self.pos_simple.index_in_bytes..]
 			.chars()
 			.next()
 			.unwrap()
+	}
+
+	/// Returns 0 if it is the first character of its line,
+	/// returns N-1 if it is the last character of its line of N characters,
+	/// etc.
+	///
+	/// This deals in characters, not bytes.
+	pub(crate) fn zero_based_char_index_in_line(&self) -> usize {
+		let line_start_in_chars =
+			self.source.line_starts.table[self.pos_simple.line_number.zero_based()].index_in_chars;
+		self.pos_simple.index_in_chars - line_start_in_chars
 	}
 }
 
@@ -563,8 +584,14 @@ impl Span {
 		}
 	}
 
+	/// The text (from the source code) that this span covers.
 	pub fn as_str(&self) -> &str {
 		&self.source.text[self.start.index_in_bytes..=self.end.index_in_bytes]
+	}
+
+	/// The number of characters (not bytes) that this span contains.
+	pub(crate) fn char_count(&self) -> usize {
+		self.end.index_in_chars - self.start.index_in_chars + 1
 	}
 
 	fn is_empty(&self) -> bool {
