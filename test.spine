@@ -13,7 +13,7 @@ kwps "Hello, World!\n";
 	kwpc 0r{8}141;   -- arbitrary radix (here 8, so octal)
 	kwpc 0r{36}2p;   -- arbitrary radix (here 36)
 
-	kwpc '\n';
+	kwpc '\n'; @;
 }
 
 -- Can do this too!

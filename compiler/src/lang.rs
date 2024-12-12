@@ -566,30 +566,38 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 	println!("{bold}{color}{message_kind_name}:{default_color} {message}{no_bold}");
 	let (line_start, line_end) = span.line_range();
 	if line_start == line_end {
+		// Code of all time incoming.
 		let line_number = line_start;
 		let line_span = span.source().line_content_span(line_number).unwrap();
-		let line_text = line_span.as_str();
-		let span_start_in_line_in_chars = span.start_pos().pos_simple.index_in_chars
-			- line_span.start_pos().pos_simple.index_in_chars;
-		let span_end_in_line_in_chars =
-			span.end_pos().pos_simple.index_in_chars - line_span.start_pos().pos_simple.index_in_chars;
-		let span_start_in_line_in_bytes = line_text
-			.char_indices()
-			.nth(span_start_in_line_in_chars)
-			.unwrap()
-			.0;
-		let span_end_in_line_in_bytes = line_text
-			.char_indices()
-			.nth(span_end_in_line_in_chars)
-			.unwrap()
-			.0;
+		let line_span_before = line_span.before_excluding(span.start_pos().without_source());
+		let line_span_after = line_span.after_excluding(span.end_pos().without_source());
 		eprintln!(
 			" {} | {}{color}{}{default_color}{}",
 			line_number.one_based(),
-			&line_text[..span_start_in_line_in_bytes],
-			&line_text[span_start_in_line_in_bytes..(span_end_in_line_in_bytes + 1)],
-			&line_text[(span_end_in_line_in_bytes + 1)..].trim_end(),
+			line_span_before
+				.as_ref()
+				.map_or("", |s| s.as_str().trim_start()),
+			span.as_str(),
+			line_span_after
+				.as_ref()
+				.map_or("", |s| s.as_str().trim_end()),
 		);
+		let underline_start = format!(
+			" {} | {}",
+			line_number.one_based(),
+			line_span_before
+				.as_ref()
+				.map_or("", |s| s.as_str().trim_start()),
+		)
+		.len();
+		for _ in 0..underline_start {
+			eprint!(" ");
+		}
+		eprint!("{color}");
+		for _ in 0..span.as_str().len() {
+			eprint!("^");
+		}
+		eprintln!("{default_color}");
 	} else {
 		unimplemented!() // yet
 	}

@@ -2,7 +2,7 @@
 //! from the source code, managing source code text, referring to characters
 //! and spans of characters in the source code.
 
-use std::{fmt::Debug, path::Path, sync::Arc};
+use std::{cmp::Ordering, fmt::Debug, path::Path, sync::Arc};
 
 /// One pice of source code, for example one source file.
 ///
@@ -307,8 +307,8 @@ impl Reader {
 /// The position of a character in a [`SourceCode`].
 #[derive(Debug, Clone)]
 pub struct Pos {
-	pub(crate) source: Arc<SourceCode>,
-	pub(crate) pos_simple: PosSimple,
+	source: Arc<SourceCode>,
+	pos_simple: PosSimple,
 }
 
 /// Same as [`Pos`] but without its reference to the source.
@@ -333,6 +333,22 @@ impl PartialEq for PosSimple {
 	}
 }
 
+impl PartialOrd for Pos {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		if self.is_in_same_source_than(other) {
+			self.pos_simple.partial_cmp(&other.pos_simple)
+		} else {
+			None
+		}
+	}
+}
+
+impl PartialOrd for PosSimple {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		self.index_in_bytes.partial_cmp(&other.index_in_bytes)
+	}
+}
+
 impl Pos {
 	fn first_character(source: Arc<SourceCode>) -> Option<Pos> {
 		if source.text.is_empty() {
@@ -350,7 +366,7 @@ impl Pos {
 		}
 	}
 
-	fn without_source(&self) -> PosSimple {
+	pub(crate) fn without_source(&self) -> PosSimple {
 		self.pos_simple
 	}
 
@@ -467,13 +483,17 @@ impl PosSimple {
 	}
 }
 
-/// Range of characters in a [`SourceCode`], can be empty.
+/// Range of characters in a [`SourceCode`], can NOT be empty.
 #[derive(Clone)]
 pub struct Span {
 	source: Arc<SourceCode>,
 	/// Included.
 	start: PosSimple,
 	/// Included! Beware.
+	///
+	/// If `end` == `start` then the span is one character long.
+	///
+	/// `end` cannot be strictly before `start`.
 	end: PosSimple,
 }
 
@@ -549,6 +569,34 @@ impl Span {
 
 	fn is_empty(&self) -> bool {
 		self.end.index_in_bytes < self.start.index_in_bytes
+	}
+
+	pub(crate) fn before_excluding(&self, pos: PosSimple) -> Option<Span> {
+		if pos <= self.start {
+			None
+		} else if pos <= self.end {
+			Some(Span {
+				source: Arc::clone(&self.source),
+				start: self.start,
+				end: pos.prev(&self.source)?,
+			})
+		} else {
+			Some(self.clone())
+		}
+	}
+
+	pub(crate) fn after_excluding(&self, pos: PosSimple) -> Option<Span> {
+		if self.end <= pos {
+			None
+		} else if self.start <= pos {
+			Some(Span {
+				source: Arc::clone(&self.source),
+				start: pos.next(&self.source)?,
+				end: self.end,
+			})
+		} else {
+			Some(self.clone())
+		}
 	}
 
 	pub(crate) fn iter_pos(&self) -> SpanPositions {
