@@ -10,8 +10,17 @@ use crate::imm::{Imm, Imm64};
 use crate::src::{Pos, Reader, SourceCode, Span};
 
 /// The radix prefix arbitrary number is bigger than the higest supported radix.
+///
+/// Not that it could not be supported, but a limit of the Spine language have been reached.
 #[derive(Debug, Clone)]
 pub struct RadixNumberTooBigUnsupported {
+	/// The span of the radix number inside the arbitrary radix prefix.
+	arbitrary_radix_number_span: Span,
+}
+
+/// The radix prefix arbitrary number is 0 or 1, these are not bases that make sense.
+#[derive(Debug, Clone)]
+pub struct RadixNumberTooSmall {
 	/// The span of the radix number inside the arbitrary radix prefix.
 	arbitrary_radix_number_span: Span,
 }
@@ -38,9 +47,41 @@ pub struct IntegerLiteralValueInvalidDigit {
 #[derive(Debug, Clone)]
 pub enum IntegerLiteralValueError {
 	RadixNumberTooBigUnsupported(RadixNumberTooBigUnsupported),
+	RadixNumberTooSmall(RadixNumberTooSmall),
 	ValueOutOfRange(IntegerLiteralValueOutOfRange),
 	/// At least one.
 	InvalidDigits(Vec<IntegerLiteralValueInvalidDigit>),
+}
+
+/// Radix prefix, such as `0x` or `0B` or `0r{12}`.
+#[derive(Debug)]
+pub(crate) struct RadixPrefix {
+	pub(crate) span: Span,
+	pub(crate) kind: RadixPrefixKindAndValue,
+	/// `0x` or `0X`
+	pub(crate) uppercase: bool,
+}
+
+/// The kind of radix prefix, and the radix number value.
+#[derive(Debug)]
+pub(crate) enum RadixPrefixKindAndValue {
+	Hexadecimal,                                                      // 0x
+	Binary,                                                           // 0b
+	Arbitrary { radix_number: Option<u32>, radix_number_span: Span }, // 0r{radix}
+}
+
+impl RadixPrefixKindAndValue {
+	/// The radix number,
+	/// ie the base used to represent the number in the integer literal that follows.
+	///
+	/// Returns `None` if the radix number is too big to fit in a `u32`.
+	fn radix_number(&self) -> Option<u32> {
+		match self {
+			RadixPrefixKindAndValue::Hexadecimal => Some(16),
+			RadixPrefixKindAndValue::Binary => Some(2),
+			RadixPrefixKindAndValue::Arbitrary { radix_number, .. } => *radix_number,
+		}
+	}
 }
 
 /// Integer literal token, like `41` or `0x6a`.
@@ -49,6 +90,19 @@ pub struct IntegerLiteral {
 	pub(crate) span: Span,
 	pub(crate) radix_prefix: Option<RadixPrefix>,
 	pub value: Result<i64, IntegerLiteralValueError>,
+}
+
+/// A character in a charater literal or in a string literal
+/// can be represented by itself (such as `a`), or by a character escape (such as `\n`).
+/// This holds the information about a parsed character escape.
+#[derive(Debug)]
+pub(crate) struct CharacterEscape {
+	pub(crate) span: Span,
+	/// The character that ends up in the compiled program.
+	/// This is the value that the escape sequence actually represents.
+	pub(crate) produced_character: char,
+	/// The escape sequence as written in the source code.
+	pub(crate) representation_in_source: String,
 }
 
 /// Character literal token, like `'a'` or `'\n'`.
@@ -286,6 +340,33 @@ fn parse_integer_literal(reader: &mut Reader) -> Token {
 		|| span.clone(),
 		|pos_after_radix_prefix| pos_after_radix_prefix.span_to(&reader.prev_pos().unwrap()),
 	);
+
+	// Make sure that the radix number makes sense
+	// (0 and 1 are the two integers that do not make sense as radix numbers).
+	if radix_prefix.as_ref().is_some_and(|radix_prefix| {
+		radix_prefix
+			.kind
+			.radix_number()
+			.is_some_and(|radix_number| radix_number == 0 || radix_number == 1)
+	}) {
+		// The radix number does not make sense.
+		let arbitrary_radix_number_span = if let RadixPrefix {
+			kind: RadixPrefixKindAndValue::Arbitrary { radix_number_span, .. },
+			..
+		} = radix_prefix.as_ref().unwrap()
+		{
+			radix_number_span.clone()
+		} else {
+			unreachable!()
+		};
+		return Token::IntegerLiteral(IntegerLiteral {
+			span,
+			radix_prefix,
+			value: Err(IntegerLiteralValueError::RadixNumberTooSmall(
+				RadixNumberTooSmall { arbitrary_radix_number_span },
+			)),
+		});
+	}
 
 	// Make sure that the radix number is supported
 	// (we support small radix numbers, but for example base 9000 is not supported).
@@ -600,7 +681,14 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 		}
 		let start_in_line = span.start_pos().zero_based_char_index_in_line();
 		let end_in_line = span.end_pos().zero_based_char_index_in_line();
-		eprintln!("{default_color} {blue}{start_in_line}-{end_in_line}{default_color}");
+		eprintln!(
+			"{default_color} {blue}{}{default_color}",
+			if start_in_line == end_in_line {
+				format!("char {start_in_line}")
+			} else {
+				format!("chars {start_in_line}-{end_in_line}")
+			}
+		);
 	} else {
 		unimplemented!() // yet
 	}
@@ -610,6 +698,7 @@ pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
 	UnknownIdentifier(Identifier),
 	RadixNumberTooBigUnsupported(RadixNumberTooBigUnsupported),
+	RadixNumberTooSmall(RadixNumberTooSmall),
 	ValueOutOfRange(IntegerLiteralValueOutOfRange),
 	InvalidDigit(IntegerLiteralValueInvalidDigit),
 }
@@ -624,6 +713,7 @@ impl CompilationError {
 			CompilationError::RadixNumberTooBigUnsupported(error) => {
 				error.arbitrary_radix_number_span.clone()
 			},
+			CompilationError::RadixNumberTooSmall(error) => error.arbitrary_radix_number_span.clone(),
 			CompilationError::ValueOutOfRange(error) => error.integer_literal_span.clone(),
 			CompilationError::InvalidDigit(error) => error.invalid_digit_pos.clone().one_char_span(),
 		}
@@ -646,9 +736,16 @@ impl CompilationError {
 					error.arbitrary_radix_number_span.as_str()
 				)
 			},
+			CompilationError::RadixNumberTooSmall(error) => {
+				format!(
+					"radix number {} is too small to make sense, a radix number has to be at least 2",
+					error.arbitrary_radix_number_span.as_str()
+				)
+			},
 			CompilationError::ValueOutOfRange(error) => format!(
-				"integer value {} is too big to fit in a 64-bit signed integer, the maximum value is {}",
-				error.integer_literal_span.as_str(), i64::MAX
+				"integer value {} is too big to fit in a 64-bit signed integer, the maximum is {}",
+				error.integer_literal_span.as_str(),
+				i64::MAX
 			),
 			CompilationError::InvalidDigit(error) => format!(
 				"character \'{}\' is not a digit of an integer written in base {}",
@@ -733,6 +830,9 @@ impl HighStatement {
 										errors.push(CompilationError::RadixNumberTooBigUnsupported(
 											error.clone(),
 										));
+									},
+									IntegerLiteralValueError::RadixNumberTooSmall(error) => {
+										errors.push(CompilationError::RadixNumberTooSmall(error.clone()));
 									},
 									IntegerLiteralValueError::ValueOutOfRange(error) => {
 										errors.push(CompilationError::ValueOutOfRange(error.clone()));
@@ -883,50 +983,6 @@ impl HighInstruction {
 			HighInstruction::Identifier(_) => unimplemented!(),
 		}
 	}
-}
-
-/// Radix prefix, such as `0x` or `0B` or `0r{12}`.
-#[derive(Debug)]
-pub(crate) struct RadixPrefix {
-	pub(crate) span: Span,
-	pub(crate) kind: RadixPrefixKindAndValue,
-	/// `0x` or `0X`
-	pub(crate) uppercase: bool,
-}
-
-/// The kind of radix prefix, and the radix number value.
-#[derive(Debug)]
-pub(crate) enum RadixPrefixKindAndValue {
-	Hexadecimal,                                                      // 0x
-	Binary,                                                           // 0b
-	Arbitrary { radix_number: Option<u32>, radix_number_span: Span }, // 0r{radix}
-}
-
-impl RadixPrefixKindAndValue {
-	/// The radix number,
-	/// ie the base used to represent the number in the integer literal that follows.
-	///
-	/// Returns `None` if the radix number is too big to fit in a `u32`.
-	fn radix_number(&self) -> Option<u32> {
-		match self {
-			RadixPrefixKindAndValue::Hexadecimal => Some(16),
-			RadixPrefixKindAndValue::Binary => Some(2),
-			RadixPrefixKindAndValue::Arbitrary { radix_number, .. } => *radix_number,
-		}
-	}
-}
-
-/// A character in a charater literal or in a string literal
-/// can be represented by itself (such as `a`), or by a character escape (such as `\n`).
-/// This holds the information about a parsed character escape.
-#[derive(Debug)]
-pub(crate) struct CharacterEscape {
-	pub(crate) span: Span,
-	/// The character that ends up in the compiled program.
-	/// This is the value that the escape sequence actually represents.
-	pub(crate) produced_character: char,
-	/// The escape sequence as written in the source code.
-	pub(crate) representation_in_source: String,
 }
 
 fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {

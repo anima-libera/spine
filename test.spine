@@ -11,7 +11,7 @@ kwps "Hello, World!\n";
 	kwpc 0x61;       -- hexadecimal
 	kwpc 0b01100001; -- binary
 	kwpc 0r{8}141;   -- arbitrary radix (here 8, so octal)
-	kwpc 0r{36}2p;   -- arbitrary radix (here 36)
+	kwpc 0r{36}2p;   -- arbitrary radix (here 36, so 0-9 and a-z are digits)
 
 	kwpc '\n';
 }

@@ -1,6 +1,5 @@
 ## Errors
 - integer literals related:
-  - arbitrary radix prefix with a radix number of 0 or 1
   - arbitrary radix prefix without a radix number (`0r{}...`)
   - arbitrary radix prefix missing opening curly
   - arbitrary radix prefix missing closing curly
