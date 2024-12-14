@@ -10,9 +10,10 @@ use crate::err::{
 	ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberInvalidDigit,
 	ArbitraryRadixNumberTooBigUnsupported, ArbitraryRadixNumberTooSmall,
 	ArbitraryRadixPrefixMissingClosingCurly, ArbitraryRadixPrefixMissingOpeningCurly,
-	CharacterLiteralMissingCharacter, CharacterLiteralMultipleCharacters,
-	CharacterLiteralNonEscapedNewline, IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing,
-	IntegerLiteralValueOutOfRange, UnexpectedCharacter, UnknownRadixPrefixLetter,
+	CharacterLiteralMissingCharacter, CharacterLiteralMissingClosingQuote,
+	CharacterLiteralMultipleCharacters, CharacterLiteralNonEscapedNewline,
+	IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing, IntegerLiteralValueOutOfRange,
+	StringLiteralMissingClosingQuote, UnexpectedCharacter, UnknownRadixPrefixLetter,
 };
 use crate::imm::{Imm, Imm64};
 use crate::src::{Pos, Reader, SourceCode, Span};
@@ -109,6 +110,7 @@ pub enum CharacterLiteralError {
 	MissingCharacter(CharacterLiteralMissingCharacter),
 	MultipleCharacters(CharacterLiteralMultipleCharacters),
 	NonEscapedNewline(CharacterLiteralNonEscapedNewline),
+	MissingClosingQuote(CharacterLiteralMissingClosingQuote),
 }
 
 /// Character literal token, like `'a'` or `'\n'`.
@@ -119,12 +121,17 @@ pub struct CharacterLiteral {
 	pub value: Result<char, CharacterLiteralError>,
 }
 
+#[derive(Debug)]
+pub enum StringLiteralError {
+	MissingClosingQuote(StringLiteralMissingClosingQuote),
+}
+
 /// String literal token, like `"awa"`.
 #[derive(Debug)]
 pub struct StringLiteral {
 	pub(crate) span: Span,
 	pub(crate) character_escapes: Vec<CharacterEscape>,
-	pub(crate) value: String,
+	pub(crate) value: Result<String, StringLiteralError>,
 }
 
 /// An explicit keyword starts with `kw` in the code (like `kwexit`)
@@ -542,6 +549,7 @@ fn will_parse_character_literal(reader: &Reader) -> bool {
 fn parse_character_literal(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
 	assert_eq!(reader.pop(), Some('\'')); // `will_parse_character_literal` made sure of that.
+
 	let mut characters = vec![];
 	let mut characters_spans = vec![];
 	let mut character_escapes = vec![];
@@ -554,9 +562,19 @@ fn parse_character_literal(reader: &mut Reader) -> Token {
 			characters.push(character_escape.produced_character);
 			characters_spans.push(character_escape.span.clone());
 			character_escapes.push(character_escape);
-		} else {
+		} else if reader.peek().is_some() {
 			characters.push(reader.pop().unwrap());
 			characters_spans.push(reader.prev_pos().unwrap().one_char_span());
+		} else {
+			// End-of-file.
+			let span = first.span_to_prev(reader).unwrap();
+			return Token::CharacterLiteral(CharacterLiteral {
+				span,
+				character_escape: None,
+				value: Err(CharacterLiteralError::MissingClosingQuote(
+					CharacterLiteralMissingClosingQuote { open_quote_pos: first },
+				)),
+			});
 		};
 	}
 	let span = first.span_to_prev(reader).unwrap();
@@ -616,6 +634,7 @@ fn will_parse_string_literal(reader: &Reader) -> bool {
 fn parse_string_literal(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
 	assert_eq!(reader.pop(), Some('\"')); // `will_parse_string_literal` made sure of that.
+
 	let mut string = String::new();
 	let mut character_escapes = vec![];
 	loop {
@@ -626,12 +645,23 @@ fn parse_string_literal(reader: &mut Reader) -> Token {
 			let character_escape = parse_character_escape(reader);
 			string.push(character_escape.produced_character);
 			character_escapes.push(character_escape);
-		} else {
+		} else if reader.peek().is_some() {
 			string.push(reader.pop().unwrap());
+		} else {
+			// End-of-file.
+			let span = first.span_to_prev(reader).unwrap();
+			return Token::StringLiteral(StringLiteral {
+				span,
+				character_escapes: vec![],
+				value: Err(StringLiteralError::MissingClosingQuote(
+					StringLiteralMissingClosingQuote { open_quote_pos: first },
+				)),
+			});
 		};
 	}
+
 	let span = first.span_to_prev(reader).unwrap();
-	Token::StringLiteral(StringLiteral { span, character_escapes, value: string })
+	Token::StringLiteral(StringLiteral { span, character_escapes, value: Ok(string) })
 }
 
 fn will_parse_word(reader: &Reader) -> bool {
@@ -1093,7 +1123,7 @@ fn compile_statement_to_low_level_statements(
 						LowInstr::PushConst(SpineValue::I64(*value.as_ref().unwrap() as i64))
 					},
 					HighInstruction::StringLiteral(StringLiteral { value, .. }) => {
-						LowInstr::PushString(value.clone())
+						LowInstr::PushString(value.as_ref().unwrap().clone())
 					},
 					HighInstruction::ExplicitKeyword(ExplicitKeyword { keyword, .. }) => {
 						match keyword.as_ref().unwrap() {

@@ -690,6 +690,13 @@ impl Pos {
 		}
 	}
 
+	/// Like `to_lsp_position` but for the next character in the line, whether it exists or not.
+	fn to_lsp_position_next_in_line(&self) -> LspPosition {
+		let mut lsp_position = self.to_lsp_position();
+		lsp_position.index_in_bytes_in_line += self.as_char().len_utf8() as u32;
+		lsp_position
+	}
+
 	pub fn is_lsp_position(&self, lsp_pos: LspPosition) -> bool {
 		self.to_lsp_position() == lsp_pos
 	}
@@ -718,9 +725,7 @@ impl Span {
 			end: self
 				.end
 				.with_source(Arc::clone(&self.source))
-				.next()
-				.unwrap()
-				.to_lsp_position(),
+				.to_lsp_position_next_in_line(),
 		}
 	}
 }

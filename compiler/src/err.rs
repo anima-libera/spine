@@ -4,7 +4,7 @@ use crate::{
 	lang::{
 		ArbitraryRadixNumberError, CharacterLiteral, CharacterLiteralError, HighInstruction,
 		HighProgram, HighStatement, Identifier, IntegerLiteral, IntegerLiteralValueError,
-		RadixPrefix, RadixPrefixError, RadixPrefixKindAndValue,
+		RadixPrefix, RadixPrefixError, RadixPrefixKindAndValue, StringLiteralError,
 	},
 	src::{Pos, Span},
 };
@@ -110,6 +110,18 @@ pub struct CharacterLiteralNonEscapedNewline {
 	pub(crate) newline_pos: Pos,
 }
 
+/// Character literal is never closed.
+#[derive(Debug, Clone)]
+pub struct CharacterLiteralMissingClosingQuote {
+	pub(crate) open_quote_pos: Pos,
+}
+
+/// String literal is never closed.
+#[derive(Debug, Clone)]
+pub struct StringLiteralMissingClosingQuote {
+	pub(crate) open_quote_pos: Pos,
+}
+
 pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
 	UnknownIdentifier(Identifier),
@@ -126,6 +138,8 @@ pub enum CompilationError {
 	CharacterLiteralMissingCharacter(CharacterLiteralMissingCharacter),
 	CharacterLiteralMultipleCharacters(CharacterLiteralMultipleCharacters),
 	CharacterLiteralNonEscapedNewline(CharacterLiteralNonEscapedNewline),
+	CharacterLiteralMissingClosingQuote(CharacterLiteralMissingClosingQuote),
+	StringLiteralMissingClosingQuote(StringLiteralMissingClosingQuote),
 }
 
 impl CompilationError {
@@ -161,6 +175,12 @@ impl CompilationError {
 			CompilationError::CharacterLiteralMultipleCharacters(error) => error.literal_span.clone(),
 			CompilationError::CharacterLiteralNonEscapedNewline(error) => {
 				error.newline_pos.clone().one_char_span()
+			},
+			CompilationError::CharacterLiteralMissingClosingQuote(error) => {
+				error.open_quote_pos.clone().one_char_span()
+			},
+			CompilationError::StringLiteralMissingClosingQuote(error) => {
+				error.open_quote_pos.clone().one_char_span()
 			},
 		}
 	}
@@ -251,6 +271,12 @@ impl CompilationError {
 			),
 			CompilationError::CharacterLiteralNonEscapedNewline(error) => {
 				"non-escaped newline character inside a character literal".to_string()
+			},
+			CompilationError::CharacterLiteralMissingClosingQuote(error) => {
+				"character literal started here is never closed by a matching single-quote".to_string()
+			},
+			CompilationError::StringLiteralMissingClosingQuote(error) => {
+				"string literal started here is never closed by a matching double-quote".to_string()
 			},
 		}
 	}
@@ -343,6 +369,7 @@ impl HighStatement {
 				}
 			},
 			HighStatement::Code { instructions, semicolon } => {
+				let errors_len_before = errors.len();
 				for instruction in instructions.iter() {
 					match instruction {
 						HighInstruction::Identifier(identifier) => {
@@ -452,24 +479,42 @@ impl HighStatement {
 											error.clone(),
 										));
 									},
+									CharacterLiteralError::MissingClosingQuote(error) => {
+										errors.push(CompilationError::CharacterLiteralMissingClosingQuote(
+											error.clone(),
+										));
+									},
 								}
 							}
 						},
 						HighInstruction::StringLiteral(string_literal) => {
-							for pos in string_literal.span.iter_pos() {
-								if pos.as_char() == '\n' {
-									warnings.push(CompilationWarning::NewlineInStringLiteral {
-										newline_pos: pos,
-									});
+							if let Err(string_literal_error) = &string_literal.value {
+								match string_literal_error {
+									StringLiteralError::MissingClosingQuote(error) => {
+										errors.push(CompilationError::StringLiteralMissingClosingQuote(
+											error.clone(),
+										));
+									},
+								}
+							} else {
+								for pos in string_literal.span.iter_pos() {
+									if pos.as_char() == '\n' {
+										warnings.push(CompilationWarning::NewlineInStringLiteral {
+											newline_pos: pos,
+										});
+									}
 								}
 							}
 						},
 						_ => {},
 					}
 				}
-				if semicolon.is_none() {
-					let statement_span = self.span();
-					warnings.push(CompilationWarning::MissingTerminatingSemicolon { statement_span });
+				if errors_len_before == errors.len() {
+					// This statement did not emit errors, so maybe we care about this warning.
+					if semicolon.is_none() {
+						let statement_span = self.span();
+						warnings.push(CompilationWarning::MissingTerminatingSemicolon { statement_span });
+					}
 				}
 			},
 			HighStatement::Block { statements, .. } => {
