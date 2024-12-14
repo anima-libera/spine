@@ -1,10 +1,4 @@
 ## Errors
-- integer literals related:
-  - arbitrary radix prefix without a radix number (`0r{}...`)
-  - arbitrary radix prefix missing opening curly
-  - arbitrary radix prefix missing closing curly
-  - arbitrary radix prefix with a radix number that contains invalid decimal digits
-  - integer literal that has a radix prefix but no digits
 - character/string literals related:
   - character literal that contains no character (`''`)
   - character literal that contains 2 or more characters (`'aa'`)

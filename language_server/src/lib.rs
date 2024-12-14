@@ -381,7 +381,7 @@ impl LanguageServer for SpineLanguageServer {
 			Some(TokenThingy::Instruction(instruction)) => {
 				let documentation = match instruction {
 					HighInstruction::IntegerLiteral(integer_literal) => {
-						if let Ok(value) = integer_literal.value {
+						if let Some(Ok(value)) = integer_literal.value {
 							format!("Integer literal, of value {value}")
 						} else {
 							return Ok(None);

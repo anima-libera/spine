@@ -407,15 +407,21 @@ impl Pos {
 		Arc::ptr_eq(&self.source, &other.source)
 	}
 
-	pub(crate) fn span_to(&self, other: &Pos) -> Span {
+	/// Returns the span from `self` (included) to `other` (included),
+	/// or `None` if `other` is before `self` (which would make the span empty).
+	pub(crate) fn span_to(&self, other: &Pos) -> Option<Span> {
 		assert!(self.is_in_same_source_than(other));
-		self.clone().one_char_span().extend_to(other)
+		if other.pos_simple.index_in_bytes < self.pos_simple.index_in_bytes {
+			None
+		} else {
+			Some(self.clone().one_char_span().extend_to(other))
+		}
 	}
 
 	/// Gets the span
 	/// from `self` (included) to the last character popped from the reader (included).
-	pub(crate) fn span_to_prev(&self, reader: &Reader) -> Span {
-		self.span_to(&reader.prev_pos().unwrap())
+	pub(crate) fn span_to_prev(&self, reader: &Reader) -> Option<Span> {
+		self.span_to(&reader.prev_pos()?)
 	}
 
 	/// Reads the character that `self` is the position of.

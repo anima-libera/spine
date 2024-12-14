@@ -9,27 +9,17 @@ use crate::elf::Binary;
 use crate::imm::{Imm, Imm64};
 use crate::src::{Pos, Reader, SourceCode, Span};
 
-/// The radix prefix arbitrary number is bigger than the higest supported radix.
-///
-/// Not that it could not be supported, but a limit of the Spine language have been reached.
-#[derive(Debug, Clone)]
-pub struct RadixNumberTooBigUnsupported {
-	/// The span of the radix number inside the arbitrary radix prefix.
-	arbitrary_radix_number_span: Span,
-}
-
-/// The radix prefix arbitrary number is 0 or 1, these are not bases that make sense.
-#[derive(Debug, Clone)]
-pub struct RadixNumberTooSmall {
-	/// The span of the radix number inside the arbitrary radix prefix.
-	arbitrary_radix_number_span: Span,
-}
-
 /// The value of the integer literal is too big and cannot fit in an integer.
 #[derive(Debug, Clone)]
 pub struct IntegerLiteralValueOutOfRange {
 	radix_prefix_span: Option<Span>,
 	integer_literal_span: Span,
+}
+
+/// The value of the integer literal is missing, something like `0x` with no digits after.
+#[derive(Debug, Clone)]
+pub struct IntegerLiteralValueMissing {
+	radix_prefix_span: Span,
 }
 
 /// A digit in the integer literal is not recognized as a digit (such as `ç`)
@@ -46,11 +36,40 @@ pub struct IntegerLiteralValueInvalidDigit {
 
 #[derive(Debug, Clone)]
 pub enum IntegerLiteralValueError {
-	RadixNumberTooBigUnsupported(RadixNumberTooBigUnsupported),
-	RadixNumberTooSmall(RadixNumberTooSmall),
+	ValueMissing(IntegerLiteralValueMissing),
 	ValueOutOfRange(IntegerLiteralValueOutOfRange),
 	/// At least one.
 	InvalidDigits(Vec<IntegerLiteralValueInvalidDigit>),
+}
+
+/// Something like `0y`.
+#[derive(Debug, Clone)]
+pub struct UnknownRadixPrefixLetter {
+	radix_letter_pos: Pos,
+}
+
+/// When `0r` is not directly followed by `{`. Something like `0r@` or `0r0`.
+#[derive(Debug, Clone)]
+pub struct ArbitraryRadixPrefixMissingOpeningCurly {
+	span_of_0r: Span,
+	/// Position of the caracter that comes just after `0r`
+	/// and that was supposed to be `{` but that is not.
+	///
+	/// `None` if end-of-file.
+	pos_of_not_open_curly: Option<Pos>,
+}
+
+/// Something like `0r{36` but not followed by `}`
+#[derive(Debug, Clone)]
+pub struct ArbitraryRadixPrefixMissingClosingCurly {
+	span_of_0r_and_open_curly: Span,
+}
+
+#[derive(Debug)]
+pub(crate) enum RadixPrefixError {
+	UnknownRadixPrefixLetter(UnknownRadixPrefixLetter),
+	ArbitraryRadixPrefixMissingOpeningCurly(ArbitraryRadixPrefixMissingOpeningCurly),
+	ArbitraryRadixPrefixMissingClosingCurly(ArbitraryRadixPrefixMissingClosingCurly),
 }
 
 /// Radix prefix, such as `0x` or `0B` or `0r{12}`.
@@ -62,12 +81,55 @@ pub(crate) struct RadixPrefix {
 	pub(crate) uppercase: bool,
 }
 
+/// A digit in the arbitrary radix number is not a base 10 digit, such as `ç`, 'a', etc.
+#[derive(Debug, Clone)]
+pub struct RadixNumberInvalidDigit {
+	invalid_digit_pos: Pos,
+	invalid_digit: char,
+}
+
+const MAX_SUPPORTED_RADIX_NUMBER: u32 = 36;
+
+/// Radix numbers stricly greater than [`MAX_SUPPORTED_RADIX_NUMBER`]
+/// are not supported by the language.
+#[derive(Debug, Clone)]
+pub struct ArbitraryRadixNumberTooBigUnsupported {
+	radix_number_span: Span,
+}
+
+/// 0 and 1 are too small to make sense as a radix number.
+#[derive(Debug, Clone)]
+pub struct ArbitraryRadixNumberTooSmall {
+	radix_number_span: Span,
+}
+
+/// `0r{}`
+#[derive(Debug, Clone)]
+pub struct ArbitraryRadixMissingRadixNumber {
+	radix_prefix_span: Span,
+}
+
+#[derive(Debug)]
+pub(crate) enum ArbitraryRadixNumberError {
+	TooBigUnsupported(ArbitraryRadixNumberTooBigUnsupported),
+	TooSmall(ArbitraryRadixNumberTooSmall),
+	MissingRadixNumber(ArbitraryRadixMissingRadixNumber),
+	/// At least one.
+	InvalidDigits(Vec<RadixNumberInvalidDigit>),
+}
+
 /// The kind of radix prefix, and the radix number value.
 #[derive(Debug)]
 pub(crate) enum RadixPrefixKindAndValue {
-	Hexadecimal,                                                      // 0x
-	Binary,                                                           // 0b
-	Arbitrary { radix_number: Option<u32>, radix_number_span: Span }, // 0r{radix}
+	/// `0x`
+	Hexadecimal,
+	/// `0b`
+	Binary,
+	/// `0r{radix}`, like `0r{8}`, `0r{36}`, etc.
+	Arbitrary {
+		radix_number: Result<u32, ArbitraryRadixNumberError>,
+		radix_number_span: Option<Span>,
+	},
 }
 
 impl RadixPrefixKindAndValue {
@@ -79,7 +141,9 @@ impl RadixPrefixKindAndValue {
 		match self {
 			RadixPrefixKindAndValue::Hexadecimal => Some(16),
 			RadixPrefixKindAndValue::Binary => Some(2),
-			RadixPrefixKindAndValue::Arbitrary { radix_number, .. } => *radix_number,
+			RadixPrefixKindAndValue::Arbitrary { radix_number, .. } => {
+				radix_number.as_ref().ok().copied()
+			},
 		}
 	}
 }
@@ -88,8 +152,9 @@ impl RadixPrefixKindAndValue {
 #[derive(Debug)]
 pub struct IntegerLiteral {
 	pub(crate) span: Span,
-	pub(crate) radix_prefix: Option<RadixPrefix>,
-	pub value: Result<i64, IntegerLiteralValueError>,
+	pub(crate) radix_prefix: Option<Result<RadixPrefix, RadixPrefixError>>,
+	/// Is `None` if `radix_prefix` has an error that prevented the parsing of the value.
+	pub value: Option<Result<i64, IntegerLiteralValueError>>,
 }
 
 /// A character in a charater literal or in a string literal
@@ -210,6 +275,274 @@ fn any_radix_digit_to_value(any_radix_digit: char) -> Option<u32> {
 	}
 }
 
+fn will_parse_integer_literal(reader: &Reader) -> bool {
+	reader.peek().is_some_and(|c| c.is_ascii_digit())
+}
+
+/// Assumes that we are at the beginning of an integer literal,
+/// the next character is the first character of that integer literal.
+fn parse_maybe_radix_prefix(reader: &mut Reader) -> Option<Result<RadixPrefix, RadixPrefixError>> {
+	let start = reader.next_pos().unwrap();
+	if !reader.skip_if_eq('0') {
+		// Radix prefixes all start by `0`.
+		return None;
+	}
+
+	let maybe_radix_letter = reader.peek();
+	if maybe_radix_letter.is_none_or(|c| !c.is_ascii_alphanumeric()) {
+		// Radix prefixes all have a letter after the `0`.
+		return None;
+	}
+	reader.skip();
+	let radix_letter = maybe_radix_letter.unwrap();
+	let radix_letter_pos = reader.prev_pos().unwrap();
+
+	match radix_letter {
+		// `0x` radix prefix
+		'x' | 'X' => Some(Ok(RadixPrefix {
+			span: start.span_to_prev(reader).unwrap(),
+			kind: RadixPrefixKindAndValue::Hexadecimal,
+			uppercase: radix_letter.is_uppercase(),
+		})),
+
+		// `0b` radix prefix
+		'b' | 'B' => Some(Ok(RadixPrefix {
+			span: start.span_to_prev(reader).unwrap(),
+			kind: RadixPrefixKindAndValue::Binary,
+			uppercase: radix_letter.is_uppercase(),
+		})),
+
+		// `0r{8}` sort of radix prefix (that can contain any supported radix number)
+		'r' | 'R' => {
+			// We popped `0r`, now we expect a `{`.
+			let open_curly = reader.pop();
+			if open_curly != Some('{') {
+				return Some(Err(
+					RadixPrefixError::ArbitraryRadixPrefixMissingOpeningCurly(
+						ArbitraryRadixPrefixMissingOpeningCurly {
+							span_of_0r: start.span_to(&radix_letter_pos).unwrap(),
+							pos_of_not_open_curly: reader.prev_pos(),
+						},
+					),
+				));
+			}
+			let open_curly_pos = reader.prev_pos().unwrap();
+
+			// We popped `0r{`, now we expect a radix number in base 10,
+			// without any whitespace or sign or anything wierd.
+			// We include whitespace in the span to emit a more comprehensive error when it happens.
+			let radix_number_start = reader.next_pos().unwrap();
+			reader.skip_while(|c| c.is_ascii_alphanumeric() || c.is_whitespace());
+			let radix_number_span = radix_number_start.span_to_prev(reader);
+
+			// We popped `0r{` and a radix number (maybe), now we expect a `}`.
+			let close_curly = reader.pop();
+			if close_curly != Some('}') {
+				return Some(Err(
+					RadixPrefixError::ArbitraryRadixPrefixMissingClosingCurly(
+						ArbitraryRadixPrefixMissingClosingCurly {
+							span_of_0r_and_open_curly: start.span_to(&open_curly_pos).unwrap(),
+						},
+					),
+				));
+			}
+
+			// We read the whole radix prefix!
+			// At this point we know that we will return a `Some(Ok(_))` and not a `Some(Err(_))`,
+			// but there are still some check to be made to decide if the `radix_number`
+			// field of the arbitrary radix prefix will be an `Ok(_)` or an `Err(_)`.
+			let span = start.span_to_prev(reader).unwrap();
+
+			// Make sure that the radix number that is between `0r{` and `}` was not missing,
+			// i.e. that we did nit just read `0r{}`.
+			let Some(radix_number_span) = radix_number_span else {
+				let radix_prefix_span = span.clone();
+				return Some(Ok(RadixPrefix {
+					span,
+					kind: RadixPrefixKindAndValue::Arbitrary {
+						radix_number: Err(ArbitraryRadixNumberError::MissingRadixNumber(
+							ArbitraryRadixMissingRadixNumber { radix_prefix_span },
+						)),
+						radix_number_span,
+					},
+					uppercase: radix_letter.is_uppercase(),
+				}));
+			};
+
+			// Make sure that the radix number is written in base 10.
+			let mut invalid_digits = vec![];
+			for pos in radix_number_span.iter_pos() {
+				let digit = pos.as_char();
+				if !pos.as_char().is_ascii_digit() {
+					let invalid_digit = digit;
+					invalid_digits
+						.push(RadixNumberInvalidDigit { invalid_digit_pos: pos, invalid_digit });
+				}
+			}
+			if !invalid_digits.is_empty() {
+				return Some(Ok(RadixPrefix {
+					span,
+					kind: RadixPrefixKindAndValue::Arbitrary {
+						radix_number: Err(ArbitraryRadixNumberError::InvalidDigits(invalid_digits)),
+						radix_number_span: Some(radix_number_span),
+					},
+					uppercase: radix_letter.is_uppercase(),
+				}));
+			}
+
+			let radix_number: Option<u32> = radix_number_span.as_str().parse().ok();
+
+			// Make sure that the radix number makes sense
+			// (0 and 1 are the two integers that do not make sense as radix numbers).
+			if let Some(radix_number @ (0 | 1)) = radix_number {
+				return Some(Ok(RadixPrefix {
+					span,
+					kind: RadixPrefixKindAndValue::Arbitrary {
+						radix_number: Err(ArbitraryRadixNumberError::TooSmall(
+							ArbitraryRadixNumberTooSmall { radix_number_span: radix_number_span.clone() },
+						)),
+						radix_number_span: Some(radix_number_span),
+					},
+					uppercase: radix_letter.is_uppercase(),
+				}));
+			}
+
+			// Make sure that the radix number is supported
+			// (we support small radix numbers, but for example base 9000 is not supported).
+			if radix_number.is_none_or(|radix_number| MAX_SUPPORTED_RADIX_NUMBER < radix_number) {
+				return Some(Ok(RadixPrefix {
+					span,
+					kind: RadixPrefixKindAndValue::Arbitrary {
+						radix_number: Err(ArbitraryRadixNumberError::TooBigUnsupported(
+							ArbitraryRadixNumberTooBigUnsupported {
+								radix_number_span: radix_number_span.clone(),
+							},
+						)),
+						radix_number_span: Some(radix_number_span),
+					},
+					uppercase: radix_letter.is_uppercase(),
+				}));
+			}
+
+			// Finally, we are sure now that we got a valid arbitrary radix prefix.
+			Some(Ok(RadixPrefix {
+				span,
+				kind: RadixPrefixKindAndValue::Arbitrary {
+					radix_number: Ok(radix_number.unwrap()),
+					radix_number_span: Some(radix_number_span),
+				},
+				uppercase: radix_letter.is_uppercase(),
+			}))
+		},
+
+		unknown => Some(Err(RadixPrefixError::UnknownRadixPrefixLetter(
+			UnknownRadixPrefixLetter { radix_letter_pos },
+		))),
+	}
+}
+
+fn parse_integer_literal(reader: &mut Reader) -> Token {
+	// Get the spans of the (optional) radix prefix and of the value part of the number.
+	// In `0x00ff00ff`, `0x` is the radix prefix and `00ff00ff` is the value.
+
+	let start = reader.next_pos().unwrap();
+	let radix_prefix = parse_maybe_radix_prefix(reader);
+	reader.skip_while(|c| c.is_ascii_alphanumeric());
+	let span = start.span_to(&reader.prev_pos().unwrap()).unwrap();
+
+	// Make sure that there is no error in the radix prefix (if any).
+	if matches!(
+		radix_prefix,
+		Some(Ok(RadixPrefix {
+			kind: RadixPrefixKindAndValue::Arbitrary { radix_number: Err(_), .. },
+			..
+		})) | Some(Err(_))
+	) {
+		return Token::IntegerLiteral(IntegerLiteral { span, radix_prefix, value: None });
+	}
+
+	let radix_prefix_span = radix_prefix
+		.as_ref()
+		.map(|radix_prefix| radix_prefix.as_ref().unwrap().span.clone());
+
+	let value_span = radix_prefix_span.as_ref().map_or_else(
+		|| Some(span.clone()),
+		|radix_prefix_span| {
+			radix_prefix_span
+				.next_pos()
+				.unwrap()
+				.span_to(&reader.prev_pos().unwrap())
+		},
+	);
+
+	// Make sure that there is a value.
+	// A missing value would be something like `0x` with no digits after.
+	let Some(value_span) = value_span else {
+		return Token::IntegerLiteral(IntegerLiteral {
+			span,
+			radix_prefix,
+			value: Some(Err(IntegerLiteralValueError::ValueMissing(
+				IntegerLiteralValueMissing { radix_prefix_span: radix_prefix_span.unwrap() },
+			))),
+		});
+	};
+
+	let radix_number = radix_prefix
+		.as_ref()
+		.map(|radix_prefix| radix_prefix.as_ref().unwrap().kind.radix_number().unwrap())
+		.unwrap_or(10);
+
+	// Parse the actual value of the value part of the integer literal,
+	// while recording errors that occur on the way.
+	let mut value: Option<i64> = Some(0);
+	let mut invalid_digits: Vec<IntegerLiteralValueInvalidDigit> = vec![];
+	let mut value_is_out_of_range = false;
+	for digit_pos in value_span.iter_pos() {
+		let digit = digit_pos.as_char();
+		let digit_value = any_radix_digit_to_value(digit).map(|d| d as i64);
+		if digit_value.is_none_or(|digit_value| radix_number as i64 <= digit_value) {
+			value = None;
+			invalid_digits.push(IntegerLiteralValueInvalidDigit {
+				radix_prefix_span: radix_prefix_span.clone(),
+				value_span: value_span.clone(),
+				invalid_digit_pos: digit_pos.clone(),
+				invalid_digit: digit,
+				radix_number,
+			});
+		}
+		if value.is_some() {
+			let new_value = value
+				.unwrap()
+				.checked_mul(radix_number as i64)
+				.and_then(|value| value.checked_add(digit_value.unwrap()));
+			if let Some(new_value) = new_value {
+				value = Some(new_value);
+			} else {
+				value = None;
+				value_is_out_of_range = true;
+			}
+		}
+	}
+
+	// We got all the info now.
+	let value = Some(if let Some(value) = value {
+		Ok(value)
+	} else if !invalid_digits.is_empty() {
+		Err(IntegerLiteralValueError::InvalidDigits(invalid_digits))
+	} else if value_is_out_of_range {
+		Err(IntegerLiteralValueError::ValueOutOfRange(
+			IntegerLiteralValueOutOfRange { radix_prefix_span, integer_literal_span: span.clone() },
+		))
+	} else {
+		unreachable!()
+	});
+	Token::IntegerLiteral(IntegerLiteral { span, radix_prefix, value })
+}
+
+fn will_parse_character_literal(reader: &Reader) -> bool {
+	reader.peek() == Some('\'')
+}
+
 /// Assumes that we are in a string or character literal,
 /// and that the next character is the `\` that starts a character escape.
 fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
@@ -266,188 +599,9 @@ fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
 		'\"' => '\"',
 		_ => panic!(),
 	};
-	let span = start.span_to_prev(reader);
+	let span = start.span_to_prev(reader).unwrap();
 	let representation_in_source = span.as_str().to_string();
 	CharacterEscape { span, produced_character, representation_in_source }
-}
-
-/// Assumes that we are at the beginning of an integer literal,
-/// the next character is the first character of that integer literal.
-fn parse_maybe_radix_prefix(reader: &mut Reader) -> Option<RadixPrefix> {
-	let start = reader.next_pos().unwrap();
-	if !reader.skip_if_eq('0') {
-		// Radix prefixes all start by `0`.
-		return None;
-	}
-
-	let maybe_radix_letter = reader.peek();
-	if maybe_radix_letter.is_none_or(|c| !c.is_ascii_alphanumeric()) {
-		// Radix prefixes all have a letter after the `0`.
-		return None;
-	}
-	reader.skip();
-	let radix_letter = maybe_radix_letter.unwrap();
-
-	match radix_letter {
-		// `0x` radix prefix
-		'x' | 'X' => Some(RadixPrefix {
-			span: start.span_to_prev(reader),
-			kind: RadixPrefixKindAndValue::Hexadecimal,
-			uppercase: radix_letter.is_uppercase(),
-		}),
-		// `0b` radix prefix
-		'b' | 'B' => Some(RadixPrefix {
-			span: start.span_to_prev(reader),
-			kind: RadixPrefixKindAndValue::Binary,
-			uppercase: radix_letter.is_uppercase(),
-		}),
-		// `0r{8}` sort of radix prefix (that can contain any supported radix number)
-		'r' | 'R' => {
-			assert_eq!(reader.pop(), Some('{'));
-			let radix_number_start = reader.next_pos().unwrap();
-			reader.skip_while(|c| c.is_ascii_digit());
-			let radix_number_span = radix_number_start.span_to_prev(reader);
-			assert_eq!(reader.pop(), Some('}'));
-			let radix_number = radix_number_span.as_str().parse().ok();
-			Some(RadixPrefix {
-				span: start.span_to_prev(reader),
-				kind: RadixPrefixKindAndValue::Arbitrary { radix_number, radix_number_span },
-				uppercase: radix_letter.is_uppercase(),
-			})
-		},
-		unknown => panic!("unknown radix prefix char {unknown}"),
-	}
-}
-
-fn will_parse_integer_literal(reader: &Reader) -> bool {
-	reader.peek().is_some_and(|c| c.is_ascii_digit())
-}
-
-fn parse_integer_literal(reader: &mut Reader) -> Token {
-	// Get the spans of the (optional) radix prefix and of the value part of the number.
-	// In `0x00ff00ff`, `0x` is the radix prefix and `00ff00ff` is the value.
-	let start = reader.next_pos().unwrap();
-	let radix_prefix = parse_maybe_radix_prefix(reader);
-	let radix_prefix_span = radix_prefix
-		.as_ref()
-		.map(|radix_prefix| radix_prefix.span.clone());
-	let pos_after_radix_prefix = radix_prefix
-		.as_ref()
-		.map(|radix_prefix| radix_prefix.span.next_pos().unwrap());
-	reader.skip_while(|c| c.is_alphanumeric());
-	let span = start.span_to(&reader.prev_pos().unwrap());
-	let value_span = pos_after_radix_prefix.map_or_else(
-		|| span.clone(),
-		|pos_after_radix_prefix| pos_after_radix_prefix.span_to(&reader.prev_pos().unwrap()),
-	);
-
-	// Make sure that the radix number makes sense
-	// (0 and 1 are the two integers that do not make sense as radix numbers).
-	if radix_prefix.as_ref().is_some_and(|radix_prefix| {
-		radix_prefix
-			.kind
-			.radix_number()
-			.is_some_and(|radix_number| radix_number == 0 || radix_number == 1)
-	}) {
-		// The radix number does not make sense.
-		let arbitrary_radix_number_span = if let RadixPrefix {
-			kind: RadixPrefixKindAndValue::Arbitrary { radix_number_span, .. },
-			..
-		} = radix_prefix.as_ref().unwrap()
-		{
-			radix_number_span.clone()
-		} else {
-			unreachable!()
-		};
-		return Token::IntegerLiteral(IntegerLiteral {
-			span,
-			radix_prefix,
-			value: Err(IntegerLiteralValueError::RadixNumberTooSmall(
-				RadixNumberTooSmall { arbitrary_radix_number_span },
-			)),
-		});
-	}
-
-	// Make sure that the radix number is supported
-	// (we support small radix numbers, but for example base 9000 is not supported).
-	if radix_prefix.as_ref().is_some_and(|radix_prefix| {
-		radix_prefix
-			.kind
-			.radix_number()
-			.is_none_or(|radix_number| 36 < radix_number)
-	}) {
-		// The radix number is too big, it is not supported.
-		let arbitrary_radix_number_span = if let RadixPrefix {
-			kind: RadixPrefixKindAndValue::Arbitrary { radix_number_span, .. },
-			..
-		} = radix_prefix.as_ref().unwrap()
-		{
-			radix_number_span.clone()
-		} else {
-			unreachable!()
-		};
-		return Token::IntegerLiteral(IntegerLiteral {
-			span,
-			radix_prefix,
-			value: Err(IntegerLiteralValueError::RadixNumberTooBigUnsupported(
-				RadixNumberTooBigUnsupported { arbitrary_radix_number_span },
-			)),
-		});
-	}
-
-	// Parse the actual value of the value part of the integer literal,
-	// while recording errors that occur on the way.
-	let radix_number = radix_prefix
-		.as_ref()
-		.map(|radix_prefix| radix_prefix.kind.radix_number().unwrap())
-		.unwrap_or(10);
-	let mut value: Option<i64> = Some(0);
-	let mut invalid_digits: Vec<IntegerLiteralValueInvalidDigit> = vec![];
-	let mut value_is_out_of_range = false;
-	for digit_pos in value_span.iter_pos() {
-		let digit = digit_pos.as_char();
-		let digit_value = any_radix_digit_to_value(digit).map(|d| d as i64);
-		if digit_value.is_none_or(|digit_value| radix_number as i64 <= digit_value) {
-			value = None;
-			invalid_digits.push(IntegerLiteralValueInvalidDigit {
-				radix_prefix_span: radix_prefix_span.clone(),
-				value_span: value_span.clone(),
-				invalid_digit_pos: digit_pos.clone(),
-				invalid_digit: digit,
-				radix_number,
-			});
-		}
-		if value.is_some() {
-			let new_value = value
-				.unwrap()
-				.checked_mul(radix_number as i64)
-				.and_then(|value| value.checked_add(digit_value.unwrap()));
-			if let Some(new_value) = new_value {
-				value = Some(new_value);
-			} else {
-				value = None;
-				value_is_out_of_range = true;
-			}
-		}
-	}
-
-	// We got all the info now.
-	let value = if let Some(value) = value {
-		Ok(value)
-	} else if !invalid_digits.is_empty() {
-		Err(IntegerLiteralValueError::InvalidDigits(invalid_digits))
-	} else if value_is_out_of_range {
-		Err(IntegerLiteralValueError::ValueOutOfRange(
-			IntegerLiteralValueOutOfRange { radix_prefix_span, integer_literal_span: span.clone() },
-		))
-	} else {
-		unreachable!()
-	};
-	Token::IntegerLiteral(IntegerLiteral { span, radix_prefix, value })
-}
-
-fn will_parse_character_literal(reader: &Reader) -> bool {
-	reader.peek() == Some('\'')
 }
 
 fn parse_character_literal(reader: &mut Reader) -> Token {
@@ -460,7 +614,7 @@ fn parse_character_literal(reader: &mut Reader) -> Token {
 		reader.pop().unwrap()
 	};
 	assert_eq!(reader.pop(), Some('\''));
-	let span = first.span_to_prev(reader);
+	let span = first.span_to_prev(reader).unwrap();
 	Token::CharacterLiteral(CharacterLiteral { span, character_escape, value: character })
 }
 
@@ -485,7 +639,7 @@ fn parse_string_literal(reader: &mut Reader) -> Token {
 			string.push(reader.pop().unwrap());
 		};
 	}
-	let span = first.span_to_prev(reader);
+	let span = first.span_to_prev(reader).unwrap();
 	Token::StringLiteral(StringLiteral { span, character_escapes, value: string })
 }
 
@@ -496,7 +650,7 @@ fn will_parse_word(reader: &Reader) -> bool {
 fn parse_word(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
 	reader.skip_while(|c| c.is_ascii_alphanumeric() || c == '_');
-	let span = first.span_to_prev(reader);
+	let span = first.span_to_prev(reader).unwrap();
 	let word = span.as_str();
 	if word.starts_with("kw") {
 		// Explicit keyword
@@ -539,11 +693,11 @@ fn parse_whitespace_and_comments(reader: &mut Reader) -> Token {
 			reader.skip_while(|c| c != '\n');
 			reader.skip();
 		}
-		let span = first.span_to_prev(reader);
+		let span = first.span_to_prev(reader).unwrap();
 		let comment = Comment { span, is_block, is_doc };
 		comments.push(comment);
 	}
-	let span = first.span_to_prev(reader);
+	let span = first.span_to_prev(reader).unwrap();
 	Token::WhitespaceAndComments(WhitespaceAndComments { span, comments })
 }
 
@@ -697,60 +851,105 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
 	UnknownIdentifier(Identifier),
-	RadixNumberTooBigUnsupported(RadixNumberTooBigUnsupported),
-	RadixNumberTooSmall(RadixNumberTooSmall),
-	ValueOutOfRange(IntegerLiteralValueOutOfRange),
-	InvalidDigit(IntegerLiteralValueInvalidDigit),
+	UnknownRadixPrefixLetter(UnknownRadixPrefixLetter),
+	ArbitraryRadixPrefixMissingOpeningCurly(ArbitraryRadixPrefixMissingOpeningCurly),
+	ArbitraryRadixPrefixMissingClosingCurly(ArbitraryRadixPrefixMissingClosingCurly),
+	ArbitraryRadixPrefixMissingRadixNumber(ArbitraryRadixMissingRadixNumber),
+	RadixNumberInvalidDigit(RadixNumberInvalidDigit),
+	RadixNumberTooBigUnsupported(ArbitraryRadixNumberTooBigUnsupported),
+	RadixNumberTooSmall(ArbitraryRadixNumberTooSmall),
+	IntegerLiteralValueMissing(IntegerLiteralValueMissing),
+	IntegerLiteralValueInvalidDigit(IntegerLiteralValueInvalidDigit),
+	IntegerLiteralValueOutOfRange(IntegerLiteralValueOutOfRange),
 }
 
 impl CompilationError {
 	pub fn span(&self) -> Span {
 		match self {
-			CompilationError::UnexpectedCharacter(unexpected_character) => {
-				unexpected_character.pos.clone().one_char_span()
+			CompilationError::UnexpectedCharacter(error) => error.pos.clone().one_char_span(),
+			CompilationError::UnknownIdentifier(error) => error.span.clone(),
+			CompilationError::UnknownRadixPrefixLetter(error) => {
+				error.radix_letter_pos.clone().one_char_span()
 			},
-			CompilationError::UnknownIdentifier(identifier) => identifier.span.clone(),
-			CompilationError::RadixNumberTooBigUnsupported(error) => {
-				error.arbitrary_radix_number_span.clone()
+			CompilationError::ArbitraryRadixPrefixMissingOpeningCurly(error) => {
+				error.span_of_0r.clone()
 			},
-			CompilationError::RadixNumberTooSmall(error) => error.arbitrary_radix_number_span.clone(),
-			CompilationError::ValueOutOfRange(error) => error.integer_literal_span.clone(),
-			CompilationError::InvalidDigit(error) => error.invalid_digit_pos.clone().one_char_span(),
+			CompilationError::ArbitraryRadixPrefixMissingClosingCurly(error) => {
+				error.span_of_0r_and_open_curly.clone()
+			},
+			CompilationError::ArbitraryRadixPrefixMissingRadixNumber(error) => {
+				error.radix_prefix_span.clone()
+			},
+			CompilationError::RadixNumberInvalidDigit(error) => {
+				error.invalid_digit_pos.clone().one_char_span()
+			},
+			CompilationError::RadixNumberTooBigUnsupported(error) => error.radix_number_span.clone(),
+			CompilationError::RadixNumberTooSmall(error) => error.radix_number_span.clone(),
+			CompilationError::IntegerLiteralValueMissing(error) => error.radix_prefix_span.clone(),
+			CompilationError::IntegerLiteralValueInvalidDigit(error) => {
+				error.invalid_digit_pos.clone().one_char_span()
+			},
+			CompilationError::IntegerLiteralValueOutOfRange(error) => {
+				error.integer_literal_span.clone()
+			},
 		}
 	}
 
 	pub fn message(&self) -> String {
 		match self {
-			CompilationError::UnexpectedCharacter(unexpected_character) => {
-				format!(
-					"character \'{}\' is unexpected here and causes a parsing error",
-					unexpected_character.character
-				)
-			},
-			CompilationError::UnknownIdentifier(identifier) => {
-				format!("unknown identifier \"{}\"", identifier.name)
-			},
-			CompilationError::RadixNumberTooBigUnsupported(error) => {
-				format!(
-					"radix number {} is too big, the maximum supported radix number is 36",
-					error.arbitrary_radix_number_span.as_str()
-				)
-			},
-			CompilationError::RadixNumberTooSmall(error) => {
-				format!(
-					"radix number {} is too small to make sense, a radix number has to be at least 2",
-					error.arbitrary_radix_number_span.as_str()
-				)
-			},
-			CompilationError::ValueOutOfRange(error) => format!(
-				"integer value {} is too big to fit in a 64-bit signed integer, the maximum is {}",
-				error.integer_literal_span.as_str(),
-				i64::MAX
+			CompilationError::UnexpectedCharacter(error) => format!(
+				"character \'{}\' is unexpected here and causes a parsing error",
+				error.character
 			),
-			CompilationError::InvalidDigit(error) => format!(
+			CompilationError::UnknownIdentifier(error) => {
+				format!("unknown identifier \"{}\"", error.name)
+			},
+			CompilationError::UnknownRadixPrefixLetter(error) => format!(
+				"unknown radix prefix \"0{}\"",
+				error.radix_letter_pos.as_char()
+			),
+			CompilationError::ArbitraryRadixPrefixMissingOpeningCurly(error) => format!(
+				"arbitrary radix prefix must have an open curly \'{{\' just after \"{}\"",
+				error.span_of_0r.as_str()
+			),
+			CompilationError::ArbitraryRadixPrefixMissingClosingCurly(error) => {
+				"arbitrary radix prefix must have an close curly \'}}\' after the radix number"
+					.to_string()
+			},
+			CompilationError::ArbitraryRadixPrefixMissingRadixNumber(error) => format!(
+				"arbitrary radix prefix \"{}\" is missing a radix number in the \"{{}}\" block",
+				error.radix_prefix_span.as_str()
+			),
+			CompilationError::RadixNumberInvalidDigit(error) => format!(
+				"character \'{}\' is not a base 10 digit, must be base 10{}",
+				error.invalid_digit,
+				if error.invalid_digit.is_whitespace() {
+					" without whitespace"
+				} else {
+					""
+				}
+			),
+			CompilationError::RadixNumberTooBigUnsupported(error) => format!(
+				"radix number {} is too big, the maximum supported radix number is 36",
+				error.radix_number_span.as_str()
+			),
+			CompilationError::RadixNumberTooSmall(error) => format!(
+				"radix number {} is too small to make sense, a radix number has to be at least 2",
+				error.radix_number_span.as_str()
+			),
+			CompilationError::IntegerLiteralValueMissing(error) => format!(
+				"integer literal \"{}\" has a radix prefix but is missing a value",
+				error.radix_prefix_span.as_str()
+			),
+			CompilationError::IntegerLiteralValueInvalidDigit(error) => format!(
 				"character \'{}\' is not a digit of an integer written in base {}",
 				error.invalid_digit_pos.as_char(),
 				error.radix_number
+			),
+			CompilationError::IntegerLiteralValueOutOfRange(error) => format!(
+				"integer value {} is too big to fit in a 64-bit signed integer, the maximum is {}",
+				error.integer_literal_span.as_str(),
+				i64::MAX
 			),
 		}
 	}
@@ -819,23 +1018,85 @@ impl HighStatement {
 							errors.push(CompilationError::UnknownIdentifier(identifier.clone()));
 						},
 						HighInstruction::IntegerLiteral(integer_literal) => {
-							if let Err(integer_error) = &integer_literal.value {
-								match integer_error {
-									IntegerLiteralValueError::InvalidDigits(invalid_digits) => {
+							if let IntegerLiteral { radix_prefix: Some(Err(radix_prefix_error)), .. } =
+								&integer_literal
+							{
+								match radix_prefix_error {
+									RadixPrefixError::UnknownRadixPrefixLetter(error) => {
+										errors
+											.push(CompilationError::UnknownRadixPrefixLetter(error.clone()));
+									},
+									RadixPrefixError::ArbitraryRadixPrefixMissingOpeningCurly(error) => {
+										errors.push(
+											CompilationError::ArbitraryRadixPrefixMissingOpeningCurly(
+												error.clone(),
+											),
+										);
+									},
+									RadixPrefixError::ArbitraryRadixPrefixMissingClosingCurly(error) => {
+										errors.push(
+											CompilationError::ArbitraryRadixPrefixMissingClosingCurly(
+												error.clone(),
+											),
+										);
+									},
+								}
+							}
+							if let IntegerLiteral {
+								radix_prefix:
+									Some(Ok(RadixPrefix {
+										kind:
+											RadixPrefixKindAndValue::Arbitrary {
+												radix_number: Err(radix_number_error),
+												..
+											},
+										..
+									})),
+								..
+							} = &integer_literal
+							{
+								match radix_number_error {
+									ArbitraryRadixNumberError::InvalidDigits(invalid_digits) => {
 										for invalid_digit in invalid_digits.iter() {
-											errors.push(CompilationError::InvalidDigit(invalid_digit.clone()));
+											errors.push(CompilationError::RadixNumberInvalidDigit(
+												invalid_digit.clone(),
+											));
 										}
 									},
-									IntegerLiteralValueError::RadixNumberTooBigUnsupported(error) => {
+									ArbitraryRadixNumberError::MissingRadixNumber(error) => {
+										errors.push(
+											CompilationError::ArbitraryRadixPrefixMissingRadixNumber(
+												error.clone(),
+											),
+										);
+									},
+									ArbitraryRadixNumberError::TooBigUnsupported(error) => {
 										errors.push(CompilationError::RadixNumberTooBigUnsupported(
 											error.clone(),
 										));
 									},
-									IntegerLiteralValueError::RadixNumberTooSmall(error) => {
+									ArbitraryRadixNumberError::TooSmall(error) => {
 										errors.push(CompilationError::RadixNumberTooSmall(error.clone()));
 									},
+								}
+							}
+							if let Some(Err(integer_error)) = &integer_literal.value {
+								match integer_error {
+									IntegerLiteralValueError::InvalidDigits(invalid_digits) => {
+										for invalid_digit in invalid_digits.iter() {
+											errors.push(CompilationError::IntegerLiteralValueInvalidDigit(
+												invalid_digit.clone(),
+											));
+										}
+									},
 									IntegerLiteralValueError::ValueOutOfRange(error) => {
-										errors.push(CompilationError::ValueOutOfRange(error.clone()));
+										errors.push(CompilationError::IntegerLiteralValueOutOfRange(
+											error.clone(),
+										));
+									},
+									IntegerLiteralValueError::ValueMissing(error) => {
+										errors
+											.push(CompilationError::IntegerLiteralValueMissing(error.clone()));
 									},
 								}
 							}
@@ -910,9 +1171,11 @@ impl HighStatement {
 				} else {
 					&instructions.last().unwrap().span().end_pos()
 				};
-				start.span_to(end)
+				start.span_to(end).unwrap()
 			},
-			HighStatement::Block { curly_open, curly_close, .. } => curly_open.span_to(curly_close),
+			HighStatement::Block { curly_open, curly_close, .. } => {
+				curly_open.span_to(curly_close).unwrap()
+			},
 			HighStatement::Empty { semicolon } => semicolon.clone().one_char_span(),
 			HighStatement::Error { span, .. } => span.clone(),
 		}
@@ -1043,7 +1306,7 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 		if let Some(semicolon) = &semicolon {
 			end = semicolon.clone();
 		}
-		let span = start.span_to(&end);
+		let span = start.span_to(&end).unwrap();
 		HighStatement::Error { span, unexpected_characters, semicolon }
 	} else if instructions.is_empty() {
 		HighStatement::Empty { semicolon: semicolon.unwrap() }
@@ -1191,7 +1454,7 @@ fn compile_statement_to_low_level_statements(
 				.rev()
 				.map(|instruction| match instruction {
 					HighInstruction::IntegerLiteral(IntegerLiteral { value, .. }) => {
-						LowInstr::PushConst(SpineValue::I64(*value.as_ref().unwrap()))
+						LowInstr::PushConst(SpineValue::I64(*value.as_ref().unwrap().as_ref().unwrap()))
 					},
 					HighInstruction::CharacterLiteral(CharacterLiteral { value, .. }) => {
 						LowInstr::PushConst(SpineValue::I64(*value as i64))

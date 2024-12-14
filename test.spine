@@ -4,9 +4,9 @@ kwps "Hello, World!\n";
 {
 	-- All of these print `a`, they all demonstrate different literal syntaxes.
 	kwpc 'a';        -- character
-	kwpc '\x61';     -- character with two-hexadecimal-digits ASCII escape
-	kwpc '\u{61}';   -- character with hexadecimal-digits Unicode escape
-	kwpc '\d{97}';   -- character with decimal-digits Unicode escape
+	kwpc '\x61';     -- character escape with two-hexadecimal-digits ASCII code
+	kwpc '\u{61}';   -- character escape with hexadecimal Unicode scalar value
+	kwpc '\d{97}';   -- character escape with decimal Unicode scalar value
 	kwpc 97;         -- decimal
 	kwpc 0x61;       -- hexadecimal
 	kwpc 0b01100001; -- binary
