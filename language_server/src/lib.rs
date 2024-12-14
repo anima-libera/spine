@@ -4,14 +4,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use spine_compiler::err::{CompilationError, CompilationWarning};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use spine_compiler::{
-	lang::{
-		parse, CompilationError, CompilationWarning, HighInstruction, HighProgram, HighStatement,
-	},
+	lang::{parse, HighInstruction, HighProgram, HighStatement},
 	src::{LspPosition, LspRange, Pos, SourceCode},
 };
 

@@ -7,6 +7,7 @@ mod lang_test;
 
 pub mod asm;
 pub mod elf;
+pub mod err;
 pub mod imm;
 pub mod lang;
 pub mod src;
