@@ -11,8 +11,8 @@ use crate::err::{
 	ArbitraryRadixNumberTooBigUnsupported, ArbitraryRadixNumberTooSmall,
 	ArbitraryRadixPrefixMissingClosingCurly, ArbitraryRadixPrefixMissingOpeningCurly,
 	CharacterLiteralMissingCharacter, CharacterLiteralMultipleCharacters,
-	IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing, IntegerLiteralValueOutOfRange,
-	UnexpectedCharacter, UnknownRadixPrefixLetter,
+	CharacterLiteralNonEscapedNewline, IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing,
+	IntegerLiteralValueOutOfRange, UnexpectedCharacter, UnknownRadixPrefixLetter,
 };
 use crate::imm::{Imm, Imm64};
 use crate::src::{Pos, Reader, SourceCode, Span};
@@ -108,6 +108,7 @@ pub(crate) struct CharacterEscape {
 pub enum CharacterLiteralError {
 	MissingCharacter(CharacterLiteralMissingCharacter),
 	MultipleCharacters(CharacterLiteralMultipleCharacters),
+	NonEscapedNewline(CharacterLiteralNonEscapedNewline),
 }
 
 /// Character literal token, like `'a'` or `'\n'`.
@@ -559,6 +560,21 @@ fn parse_character_literal(reader: &mut Reader) -> Token {
 		};
 	}
 	let span = first.span_to_prev(reader).unwrap();
+
+	// Make sure that there are no non-escaped newline characters in the literal.
+	for character_span in characters_spans.iter() {
+		if character_span.as_str() == "\n" {
+			let literal_span = span.clone();
+			let newline_pos = character_span.start_pos();
+			return Token::CharacterLiteral(CharacterLiteral {
+				span,
+				character_escape: None,
+				value: Err(CharacterLiteralError::NonEscapedNewline(
+					CharacterLiteralNonEscapedNewline { literal_span, newline_pos },
+				)),
+			});
+		}
+	}
 
 	// Make sure that there are no more than one character in the literal.
 	if 2 <= characters.len() {

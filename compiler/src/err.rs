@@ -103,6 +103,13 @@ pub struct CharacterLiteralMultipleCharacters {
 	pub(crate) character_spans: Vec<Span>,
 }
 
+/// Character literal contains a non-escaped newline.
+#[derive(Debug, Clone)]
+pub struct CharacterLiteralNonEscapedNewline {
+	pub(crate) literal_span: Span,
+	pub(crate) newline_pos: Pos,
+}
+
 pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
 	UnknownIdentifier(Identifier),
@@ -118,6 +125,7 @@ pub enum CompilationError {
 	IntegerLiteralValueOutOfRange(IntegerLiteralValueOutOfRange),
 	CharacterLiteralMissingCharacter(CharacterLiteralMissingCharacter),
 	CharacterLiteralMultipleCharacters(CharacterLiteralMultipleCharacters),
+	CharacterLiteralNonEscapedNewline(CharacterLiteralNonEscapedNewline),
 }
 
 impl CompilationError {
@@ -151,6 +159,9 @@ impl CompilationError {
 			},
 			CompilationError::CharacterLiteralMissingCharacter(error) => error.literal_span.clone(),
 			CompilationError::CharacterLiteralMultipleCharacters(error) => error.literal_span.clone(),
+			CompilationError::CharacterLiteralNonEscapedNewline(error) => {
+				error.newline_pos.clone().one_char_span()
+			},
 		}
 	}
 
@@ -219,6 +230,7 @@ impl CompilationError {
 				error.literal_span.as_str(),
 				error.character_spans.len(),
 				if error.character_spans.len() <= 5 {
+					// There are few characters, we can list them.
 					let mut characters = " (".to_string();
 					for (i, character_span) in error.character_spans.iter().enumerate() {
 						characters.push('\'');
@@ -237,6 +249,9 @@ impl CompilationError {
 					"".to_string()
 				}
 			),
+			CompilationError::CharacterLiteralNonEscapedNewline(error) => {
+				"non-escaped newline character inside a character literal".to_string()
+			},
 		}
 	}
 
@@ -429,6 +444,11 @@ impl HighStatement {
 									},
 									CharacterLiteralError::MultipleCharacters(error) => {
 										errors.push(CompilationError::CharacterLiteralMultipleCharacters(
+											error.clone(),
+										));
+									},
+									CharacterLiteralError::NonEscapedNewline(error) => {
+										errors.push(CompilationError::CharacterLiteralNonEscapedNewline(
 											error.clone(),
 										));
 									},
