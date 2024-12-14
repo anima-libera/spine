@@ -2,9 +2,9 @@
 
 use crate::{
 	lang::{
-		ArbitraryRadixNumberError, HighInstruction, HighProgram, HighStatement, Identifier,
-		IntegerLiteral, IntegerLiteralValueError, RadixPrefix, RadixPrefixError,
-		RadixPrefixKindAndValue,
+		ArbitraryRadixNumberError, CharacterLiteral, CharacterLiteralError, HighInstruction,
+		HighProgram, HighStatement, Identifier, IntegerLiteral, IntegerLiteralValueError,
+		RadixPrefix, RadixPrefixError, RadixPrefixKindAndValue,
 	},
 	src::{Pos, Span},
 };
@@ -89,6 +89,20 @@ pub struct ArbitraryRadixMissingRadixNumber {
 	pub(crate) radix_prefix_span: Span,
 }
 
+/// Character literal that contains no character, like `''`.
+#[derive(Debug, Clone)]
+pub struct CharacterLiteralMissingCharacter {
+	pub(crate) literal_span: Span,
+}
+
+/// Character literal that contains multiple characters (where only one is expected), like `'aa'`.
+#[derive(Debug, Clone)]
+pub struct CharacterLiteralMultipleCharacters {
+	pub(crate) literal_span: Span,
+	/// The spans of each characters. At least two.
+	pub(crate) character_spans: Vec<Span>,
+}
+
 pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
 	UnknownIdentifier(Identifier),
@@ -102,6 +116,8 @@ pub enum CompilationError {
 	IntegerLiteralValueMissing(IntegerLiteralValueMissing),
 	IntegerLiteralValueInvalidDigit(IntegerLiteralValueInvalidDigit),
 	IntegerLiteralValueOutOfRange(IntegerLiteralValueOutOfRange),
+	CharacterLiteralMissingCharacter(CharacterLiteralMissingCharacter),
+	CharacterLiteralMultipleCharacters(CharacterLiteralMultipleCharacters),
 }
 
 impl CompilationError {
@@ -133,6 +149,8 @@ impl CompilationError {
 			CompilationError::IntegerLiteralValueOutOfRange(error) => {
 				error.integer_literal_span.clone()
 			},
+			CompilationError::CharacterLiteralMissingCharacter(error) => error.literal_span.clone(),
+			CompilationError::CharacterLiteralMultipleCharacters(error) => error.literal_span.clone(),
 		}
 	}
 
@@ -191,6 +209,33 @@ impl CompilationError {
 				"integer value {} is too big to fit in a 64-bit signed integer, the maximum is {}",
 				error.integer_literal_span.as_str(),
 				i64::MAX
+			),
+			CompilationError::CharacterLiteralMissingCharacter(error) => format!(
+				"character literal {} contains no character, it has to contain one",
+				error.literal_span.as_str()
+			),
+			CompilationError::CharacterLiteralMultipleCharacters(error) => format!(
+				"character literal {} contains {} charaters{}, it has to contain only one",
+				error.literal_span.as_str(),
+				error.character_spans.len(),
+				if error.character_spans.len() <= 5 {
+					let mut characters = " (".to_string();
+					for (i, character_span) in error.character_spans.iter().enumerate() {
+						characters.push('\'');
+						characters.push_str(character_span.as_str());
+						characters.push('\'');
+						#[allow(clippy::comparison_chain)]
+						if i + 2 == error.character_spans.len() {
+							characters.push_str(" and ");
+						} else if i + 2 < error.character_spans.len() {
+							characters.push_str(", ");
+						}
+					}
+					characters.push(')');
+					characters
+				} else {
+					"".to_string()
+				}
 			),
 		}
 	}
@@ -262,6 +307,7 @@ impl HighStatement {
 	pub fn get_errors_and_warnings(&self) -> (Vec<CompilationError>, Vec<CompilationWarning>) {
 		let mut errors = vec![];
 		let mut warnings = vec![];
+		#[allow(clippy::collapsible_match)]
 		match self {
 			HighStatement::Error { unexpected_characters, .. } => {
 				for unexpected_character in unexpected_characters.iter() {
@@ -356,6 +402,24 @@ impl HighStatement {
 									IntegerLiteralValueError::ValueMissing(error) => {
 										errors
 											.push(CompilationError::IntegerLiteralValueMissing(error.clone()));
+									},
+								}
+							}
+						},
+						HighInstruction::CharacterLiteral(character_literal) => {
+							if let CharacterLiteral { value: Err(character_literal_error), .. } =
+								&character_literal
+							{
+								match character_literal_error {
+									CharacterLiteralError::MissingCharacter(error) => {
+										errors.push(CompilationError::CharacterLiteralMissingCharacter(
+											error.clone(),
+										));
+									},
+									CharacterLiteralError::MultipleCharacters(error) => {
+										errors.push(CompilationError::CharacterLiteralMultipleCharacters(
+											error.clone(),
+										));
 									},
 								}
 							}

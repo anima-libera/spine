@@ -387,10 +387,14 @@ impl LanguageServer for SpineLanguageServer {
 						}
 					},
 					HighInstruction::CharacterLiteral(character_literal) => {
-						format!(
-							"Character literal, of unicode code point U+{c:04X} ({c})",
-							c = character_literal.value as u32
-						)
+						if let Ok(value) = character_literal.value {
+							format!(
+								"Character literal, of unicode code point U+{c:04X} ({c})",
+								c = value as u32
+							)
+						} else {
+							return Ok(None);
+						}
 					},
 					HighInstruction::StringLiteral(_) => "String literal".to_string(),
 					HighInstruction::ExplicitKeyword(_) => "Explicit keyword".to_string(),

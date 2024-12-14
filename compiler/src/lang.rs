@@ -9,9 +9,10 @@ use crate::elf::Binary;
 use crate::err::{
 	ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberTooBigUnsupported,
 	ArbitraryRadixNumberTooSmall, ArbitraryRadixPrefixMissingClosingCurly,
-	ArbitraryRadixPrefixMissingOpeningCurly, IntegerLiteralValueInvalidDigit,
-	IntegerLiteralValueMissing, IntegerLiteralValueOutOfRange, RadixNumberInvalidDigit,
-	UnexpectedCharacter, UnknownRadixPrefixLetter,
+	ArbitraryRadixPrefixMissingOpeningCurly, CharacterLiteralMissingCharacter,
+	CharacterLiteralMultipleCharacters, IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing,
+	IntegerLiteralValueOutOfRange, RadixNumberInvalidDigit, UnexpectedCharacter,
+	UnknownRadixPrefixLetter,
 };
 use crate::imm::{Imm, Imm64};
 use crate::src::{Pos, Reader, SourceCode, Span};
@@ -103,12 +104,18 @@ pub(crate) struct CharacterEscape {
 	pub(crate) representation_in_source: String,
 }
 
+#[derive(Debug)]
+pub enum CharacterLiteralError {
+	MissingCharacter(CharacterLiteralMissingCharacter),
+	MultipleCharacters(CharacterLiteralMultipleCharacters),
+}
+
 /// Character literal token, like `'a'` or `'\n'`.
 #[derive(Debug)]
 pub struct CharacterLiteral {
 	pub(crate) span: Span,
 	pub(crate) character_escape: Option<CharacterEscape>,
-	pub value: char,
+	pub value: Result<char, CharacterLiteralError>,
 }
 
 /// String literal token, like `"awa"`.
@@ -466,10 +473,6 @@ fn parse_integer_literal(reader: &mut Reader) -> Token {
 	Token::IntegerLiteral(IntegerLiteral { span, radix_prefix, value })
 }
 
-fn will_parse_character_literal(reader: &Reader) -> bool {
-	reader.peek() == Some('\'')
-}
-
 /// Assumes that we are in a string or character literal,
 /// and that the next character is the `\` that starts a character escape.
 fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
@@ -531,18 +534,63 @@ fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
 	CharacterEscape { span, produced_character, representation_in_source }
 }
 
+fn will_parse_character_literal(reader: &Reader) -> bool {
+	reader.peek() == Some('\'')
+}
+
 fn parse_character_literal(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
-	assert_eq!(reader.pop(), Some('\''));
-	let character_escape = (reader.peek() == Some('\\')).then(|| parse_character_escape(reader));
-	let character = if let Some(character_escape) = &character_escape {
-		character_escape.produced_character
-	} else {
-		reader.pop().unwrap()
-	};
-	assert_eq!(reader.pop(), Some('\''));
+	assert_eq!(reader.pop(), Some('\'')); // `will_parse_character_literal` made sure of that.
+	let mut characters = vec![];
+	let mut characters_spans = vec![];
+	let mut character_escapes = vec![];
+	loop {
+		if reader.peek() == Some('\'') {
+			reader.skip();
+			break;
+		} else if reader.peek() == Some('\\') {
+			let character_escape = parse_character_escape(reader);
+			characters.push(character_escape.produced_character);
+			characters_spans.push(character_escape.span.clone());
+			character_escapes.push(character_escape);
+		} else {
+			characters.push(reader.pop().unwrap());
+			characters_spans.push(reader.prev_pos().unwrap().one_char_span());
+		};
+	}
 	let span = first.span_to_prev(reader).unwrap();
-	Token::CharacterLiteral(CharacterLiteral { span, character_escape, value: character })
+
+	// Make sure that there are no more than one character in the literal.
+	if 2 <= characters.len() {
+		let literal_span = span.clone();
+		return Token::CharacterLiteral(CharacterLiteral {
+			span,
+			character_escape: None,
+			value: Err(CharacterLiteralError::MultipleCharacters(
+				CharacterLiteralMultipleCharacters { literal_span, character_spans: characters_spans },
+			)),
+		});
+	}
+
+	// Make sure that the character in the literal is not missing.
+	if characters.is_empty() {
+		let literal_span = span.clone();
+		return Token::CharacterLiteral(CharacterLiteral {
+			span,
+			character_escape: None,
+			value: Err(CharacterLiteralError::MissingCharacter(
+				CharacterLiteralMissingCharacter { literal_span },
+			)),
+		});
+	}
+
+	assert_eq!(characters.len(), 1);
+	assert_eq!(characters_spans.len(), 1);
+	assert!(character_escapes.len() <= 1);
+	let character = characters[0];
+	let character_escape = character_escapes.pop();
+
+	Token::CharacterLiteral(CharacterLiteral { span, character_escape, value: Ok(character) })
 }
 
 fn will_parse_string_literal(reader: &Reader) -> bool {
@@ -551,7 +599,7 @@ fn will_parse_string_literal(reader: &Reader) -> bool {
 
 fn parse_string_literal(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
-	assert_eq!(reader.pop(), Some('\"'));
+	assert_eq!(reader.pop(), Some('\"')); // `will_parse_string_literal` made sure of that.
 	let mut string = String::new();
 	let mut character_escapes = vec![];
 	loop {
@@ -1026,7 +1074,7 @@ fn compile_statement_to_low_level_statements(
 						LowInstr::PushConst(SpineValue::I64(*value.as_ref().unwrap().as_ref().unwrap()))
 					},
 					HighInstruction::CharacterLiteral(CharacterLiteral { value, .. }) => {
-						LowInstr::PushConst(SpineValue::I64(*value as i64))
+						LowInstr::PushConst(SpineValue::I64(*value.as_ref().unwrap() as i64))
 					},
 					HighInstruction::StringLiteral(StringLiteral { value, .. }) => {
 						LowInstr::PushString(value.clone())
