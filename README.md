@@ -107,11 +107,11 @@ Some of the instructions syntax are keywords that begin with `kw`, this is the s
 - `kwpc` `(character --> )` prints the character to stdout.
 - `kwps` `(pointer n --> )` prints n characters of the string pointed to by the pointer. If the string is shorter than n then undefined behavior occurs (the stuff after gets printed too, hopefully it is valid utf-8 >w< and hopefully it is in allocated virtual memory pages marked as readable).
 - `kwadd` `(n m --> r)` pops and adds n and m then pushes the result.
-- `41` ( --> 41) pushes 41. It works for other unsigned numbers too.
-  - Can be in hexadecimal (when prefixed by `0x`),
-  - in binary (when prefixed by `0b`),
-  - or in some arbitrary radix (when prefixed by `0r{8}` for octal or `0r{36}` for base 36 for example);
-  - the `x`, `b` and `r` can be uppercase.
+- `41` ( --> 41) pushes 41. It works for other unsigned numbers too, such as `8`.
+  - `0xaea`, hexadecimal radix prefix.
+  - `0b101`, binary radix prefix.
+  - `0r{8}707` or `0r{36}zaz`, arbitrary radix prefix (up to base 36).
+  - The `x`, `b` and `r` of the radix prefixes can be uppercase.
 - `'a'` ( --> a) pushes the character `a`. It works for other characters too. See the [character escape syntax](#character-escape).
 - `"awawa"` ( --> pointer len) pushes a pointer to the begining of static data that is the utf-8 encoding of `awawa`, and then pushes the length (of the utf-8 encoding, in bytes) of that string. It works for other strings too. See the [character escape syntax](#character-escape). Note how it works nicely with `kwps`.
 

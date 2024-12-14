@@ -65,7 +65,7 @@ pub struct IntegerLiteralValueInvalidDigit {
 
 /// A digit in the arbitrary radix number is not a base 10 digit, such as `ç`, 'a', etc.
 #[derive(Debug, Clone)]
-pub struct RadixNumberInvalidDigit {
+pub struct ArbitraryRadixNumberInvalidDigit {
 	pub(crate) invalid_digit_pos: Pos,
 	pub(crate) invalid_digit: char,
 }
@@ -110,7 +110,7 @@ pub enum CompilationError {
 	ArbitraryRadixPrefixMissingOpeningCurly(ArbitraryRadixPrefixMissingOpeningCurly),
 	ArbitraryRadixPrefixMissingClosingCurly(ArbitraryRadixPrefixMissingClosingCurly),
 	ArbitraryRadixPrefixMissingRadixNumber(ArbitraryRadixMissingRadixNumber),
-	RadixNumberInvalidDigit(RadixNumberInvalidDigit),
+	RadixNumberInvalidDigit(ArbitraryRadixNumberInvalidDigit),
 	RadixNumberTooBigUnsupported(ArbitraryRadixNumberTooBigUnsupported),
 	RadixNumberTooSmall(ArbitraryRadixNumberTooSmall),
 	IntegerLiteralValueMissing(IntegerLiteralValueMissing),
@@ -247,6 +247,7 @@ impl CompilationError {
 
 pub enum CompilationWarning {
 	MissingTerminatingSemicolon { statement_span: Span },
+	NewlineInStringLiteral { newline_pos: Pos },
 }
 
 /// IDEs such as VSCode can suggest to the user one (or multiple) "quick fix" solutions
@@ -263,6 +264,9 @@ impl CompilationWarning {
 			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
 				statement_span.clone()
 			},
+			CompilationWarning::NewlineInStringLiteral { newline_pos } => {
+				newline_pos.clone().one_char_span()
+			},
 		}
 	}
 
@@ -270,6 +274,9 @@ impl CompilationWarning {
 		match self {
 			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
 				"missing terminating semicolon \';\' at the end of this statement".to_string()
+			},
+			CompilationWarning::NewlineInStringLiteral { .. } => {
+				"non-escaped newline character inside a string literal".to_string()
 			},
 		}
 	}
@@ -284,6 +291,10 @@ impl CompilationWarning {
 				description: "Add a terminating semicolon \';\'".to_string(),
 				new_code: statement_span.as_str().to_string() + ";",
 			}),
+			CompilationWarning::NewlineInStringLiteral { .. } => {
+				// TODO: propose to replace the non-escaped newline by `\n`
+				None
+			},
 		}
 	}
 }
@@ -424,6 +435,15 @@ impl HighStatement {
 								}
 							}
 						},
+						HighInstruction::StringLiteral(string_literal) => {
+							for pos in string_literal.span.iter_pos() {
+								if pos.as_char() == '\n' {
+									warnings.push(CompilationWarning::NewlineInStringLiteral {
+										newline_pos: pos,
+									});
+								}
+							}
+						},
 						_ => {},
 					}
 				}
@@ -481,7 +501,9 @@ fn print_compilation_message(kind: MessageKind, span: Span, message: String) {
 			line_span_before
 				.as_ref()
 				.map_or("", |s| s.as_str().trim_start()),
-			span.as_str(),
+			span
+				.as_str()
+				.replace('\n', &format!("{negative} {no_negative}")),
 			line_span_after
 				.as_ref()
 				.map_or("", |s| s.as_str().trim_end()),

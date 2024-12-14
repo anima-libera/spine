@@ -7,12 +7,12 @@ use std::sync::Arc;
 use crate::asm::{AsmInstr, Reg64};
 use crate::elf::Binary;
 use crate::err::{
-	ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberTooBigUnsupported,
-	ArbitraryRadixNumberTooSmall, ArbitraryRadixPrefixMissingClosingCurly,
-	ArbitraryRadixPrefixMissingOpeningCurly, CharacterLiteralMissingCharacter,
-	CharacterLiteralMultipleCharacters, IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing,
-	IntegerLiteralValueOutOfRange, RadixNumberInvalidDigit, UnexpectedCharacter,
-	UnknownRadixPrefixLetter,
+	ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberInvalidDigit,
+	ArbitraryRadixNumberTooBigUnsupported, ArbitraryRadixNumberTooSmall,
+	ArbitraryRadixPrefixMissingClosingCurly, ArbitraryRadixPrefixMissingOpeningCurly,
+	CharacterLiteralMissingCharacter, CharacterLiteralMultipleCharacters,
+	IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing, IntegerLiteralValueOutOfRange,
+	UnexpectedCharacter, UnknownRadixPrefixLetter,
 };
 use crate::imm::{Imm, Imm64};
 use crate::src::{Pos, Reader, SourceCode, Span};
@@ -49,7 +49,7 @@ pub(crate) enum ArbitraryRadixNumberError {
 	TooSmall(ArbitraryRadixNumberTooSmall),
 	MissingRadixNumber(ArbitraryRadixMissingRadixNumber),
 	/// At least one.
-	InvalidDigits(Vec<RadixNumberInvalidDigit>),
+	InvalidDigits(Vec<ArbitraryRadixNumberInvalidDigit>),
 }
 
 /// The kind of radix prefix, and the radix number value.
@@ -310,7 +310,7 @@ fn parse_maybe_radix_prefix(reader: &mut Reader) -> Option<Result<RadixPrefix, R
 				if !pos.as_char().is_ascii_digit() {
 					let invalid_digit = digit;
 					invalid_digits
-						.push(RadixNumberInvalidDigit { invalid_digit_pos: pos, invalid_digit });
+						.push(ArbitraryRadixNumberInvalidDigit { invalid_digit_pos: pos, invalid_digit });
 				}
 			}
 			if !invalid_digits.is_empty() {
