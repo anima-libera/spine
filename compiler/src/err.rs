@@ -2,9 +2,10 @@
 
 use crate::{
 	lang::{
-		ArbitraryRadixNumberError, CharacterLiteral, CharacterLiteralError, HighInstruction,
-		HighProgram, HighStatement, Identifier, IntegerLiteral, IntegerLiteralValueError,
-		RadixPrefix, RadixPrefixError, RadixPrefixKindAndValue, StringLiteralError,
+		ArbitraryRadixNumberError, CharacterEscapeError, CharacterLiteral, CharacterLiteralError,
+		HighInstruction, HighProgram, HighStatement, Identifier, IntegerLiteral,
+		IntegerLiteralValueError, RadixPrefix, RadixPrefixError, RadixPrefixKindAndValue,
+		StringLiteralError,
 	},
 	src::{Pos, Span},
 };
@@ -122,6 +123,13 @@ pub struct StringLiteralMissingClosingQuote {
 	pub(crate) open_quote_pos: Pos,
 }
 
+/// When the character that follows the `\` in a character escape is invalid, such as `\!`.
+#[derive(Debug, Clone)]
+pub struct CharacterEscapeUnexpectedCharacter {
+	pub(crate) backslash_pos: Pos,
+	pub(crate) invalid_character_pos: Pos,
+}
+
 pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
 	UnknownIdentifier(Identifier),
@@ -140,6 +148,7 @@ pub enum CompilationError {
 	CharacterLiteralNonEscapedNewline(CharacterLiteralNonEscapedNewline),
 	CharacterLiteralMissingClosingQuote(CharacterLiteralMissingClosingQuote),
 	StringLiteralMissingClosingQuote(StringLiteralMissingClosingQuote),
+	CharacterEscapeUnexpectedCharacter(CharacterEscapeUnexpectedCharacter),
 }
 
 impl CompilationError {
@@ -182,6 +191,10 @@ impl CompilationError {
 			CompilationError::StringLiteralMissingClosingQuote(error) => {
 				error.open_quote_pos.clone().one_char_span()
 			},
+			CompilationError::CharacterEscapeUnexpectedCharacter(error) => error
+				.backslash_pos
+				.span_to(&error.invalid_character_pos)
+				.unwrap(),
 		}
 	}
 
@@ -278,6 +291,10 @@ impl CompilationError {
 			CompilationError::StringLiteralMissingClosingQuote(error) => {
 				"string literal started here is never closed by a matching double-quote".to_string()
 			},
+			CompilationError::CharacterEscapeUnexpectedCharacter(error) => format!(
+				"unknown character escape that begins by \"{}\"",
+				self.span().as_str()
+			),
 		}
 	}
 
@@ -369,6 +386,15 @@ impl HighStatement {
 				}
 			},
 			HighStatement::Code { instructions, semicolon } => {
+				fn character_escape_error_to_compilation_error(
+					character_escape_error: CharacterEscapeError,
+				) -> CompilationError {
+					match character_escape_error {
+						CharacterEscapeError::UnexpectedCharacter(error) => {
+							CompilationError::CharacterEscapeUnexpectedCharacter(error)
+						},
+					}
+				}
 				let errors_len_before = errors.len();
 				for instruction in instructions.iter() {
 					match instruction {
@@ -464,6 +490,11 @@ impl HighStatement {
 								&character_literal
 							{
 								match character_literal_error {
+									CharacterLiteralError::CharacterEscapeError(character_escape_error) => {
+										errors.push(character_escape_error_to_compilation_error(
+											character_escape_error.clone(),
+										));
+									},
 									CharacterLiteralError::MissingCharacter(error) => {
 										errors.push(CompilationError::CharacterLiteralMissingCharacter(
 											error.clone(),
@@ -490,6 +521,11 @@ impl HighStatement {
 						HighInstruction::StringLiteral(string_literal) => {
 							if let Err(string_literal_error) = &string_literal.value {
 								match string_literal_error {
+									StringLiteralError::CharacterEscapeError(character_escape_error) => {
+										errors.push(character_escape_error_to_compilation_error(
+											character_escape_error.clone(),
+										));
+									},
 									StringLiteralError::MissingClosingQuote(error) => {
 										errors.push(CompilationError::StringLiteralMissingClosingQuote(
 											error.clone(),

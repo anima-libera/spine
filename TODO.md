@@ -1,7 +1,5 @@
 ## Errors
 - character/string literals related:
-  - character/string literal missing closing quote/double-quote
-  - invalid escape: unexpected character after the slash (`\!`)
   - invalid escape: `\x` missing one or two hexadecimal digits
   - invalid escape: `\u`/`\d` missing opening curly
   - invalid escape: `\u`/`\d` missing closing curly

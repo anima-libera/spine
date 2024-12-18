@@ -10,10 +10,11 @@ use crate::err::{
 	ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberInvalidDigit,
 	ArbitraryRadixNumberTooBigUnsupported, ArbitraryRadixNumberTooSmall,
 	ArbitraryRadixPrefixMissingClosingCurly, ArbitraryRadixPrefixMissingOpeningCurly,
-	CharacterLiteralMissingCharacter, CharacterLiteralMissingClosingQuote,
-	CharacterLiteralMultipleCharacters, CharacterLiteralNonEscapedNewline,
-	IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing, IntegerLiteralValueOutOfRange,
-	StringLiteralMissingClosingQuote, UnexpectedCharacter, UnknownRadixPrefixLetter,
+	CharacterEscapeUnexpectedCharacter, CharacterLiteralMissingCharacter,
+	CharacterLiteralMissingClosingQuote, CharacterLiteralMultipleCharacters,
+	CharacterLiteralNonEscapedNewline, IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing,
+	IntegerLiteralValueOutOfRange, StringLiteralMissingClosingQuote, UnexpectedCharacter,
+	UnknownRadixPrefixLetter,
 };
 use crate::imm::{Imm, Imm64};
 use crate::src::{Pos, Reader, SourceCode, Span};
@@ -92,6 +93,11 @@ pub struct IntegerLiteral {
 	pub value: Option<Result<i64, IntegerLiteralValueError>>,
 }
 
+#[derive(Debug, Clone)]
+pub enum CharacterEscapeError {
+	UnexpectedCharacter(CharacterEscapeUnexpectedCharacter),
+}
+
 /// A character in a charater literal or in a string literal
 /// can be represented by itself (such as `a`), or by a character escape (such as `\n`).
 /// This holds the information about a parsed character escape.
@@ -107,6 +113,7 @@ pub(crate) struct CharacterEscape {
 
 #[derive(Debug)]
 pub enum CharacterLiteralError {
+	CharacterEscapeError(CharacterEscapeError),
 	MissingCharacter(CharacterLiteralMissingCharacter),
 	MultipleCharacters(CharacterLiteralMultipleCharacters),
 	NonEscapedNewline(CharacterLiteralNonEscapedNewline),
@@ -123,6 +130,7 @@ pub struct CharacterLiteral {
 
 #[derive(Debug)]
 pub enum StringLiteralError {
+	CharacterEscapeError(CharacterEscapeError),
 	MissingClosingQuote(StringLiteralMissingClosingQuote),
 }
 
@@ -483,7 +491,7 @@ fn parse_integer_literal(reader: &mut Reader) -> Token {
 
 /// Assumes that we are in a string or character literal,
 /// and that the next character is the `\` that starts a character escape.
-fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
+fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, CharacterEscapeError> {
 	let start = reader.next_pos().unwrap();
 	assert_eq!(reader.pop(), Some('\\'));
 	let produced_character = match reader.pop().unwrap() {
@@ -535,11 +543,18 @@ fn parse_character_escape(reader: &mut Reader) -> CharacterEscape {
 		'\\' => '\\',
 		'\'' => '\'',
 		'\"' => '\"',
-		_ => panic!(),
+		_ => {
+			return Err(CharacterEscapeError::UnexpectedCharacter(
+				CharacterEscapeUnexpectedCharacter {
+					backslash_pos: start,
+					invalid_character_pos: reader.prev_pos().unwrap(),
+				},
+			))
+		},
 	};
 	let span = start.span_to_prev(reader).unwrap();
 	let representation_in_source = span.as_str().to_string();
-	CharacterEscape { span, produced_character, representation_in_source }
+	Ok(CharacterEscape { span, produced_character, representation_in_source })
 }
 
 fn will_parse_character_literal(reader: &Reader) -> bool {
@@ -553,15 +568,21 @@ fn parse_character_literal(reader: &mut Reader) -> Token {
 	let mut characters = vec![];
 	let mut characters_spans = vec![];
 	let mut character_escapes = vec![];
+	let mut character_escape_errors = vec![];
 	loop {
 		if reader.peek() == Some('\'') {
 			reader.skip();
 			break;
 		} else if reader.peek() == Some('\\') {
 			let character_escape = parse_character_escape(reader);
-			characters.push(character_escape.produced_character);
-			characters_spans.push(character_escape.span.clone());
-			character_escapes.push(character_escape);
+			match character_escape {
+				Err(error) => character_escape_errors.push(error),
+				Ok(character_escape) => {
+					characters.push(character_escape.produced_character);
+					characters_spans.push(character_escape.span.clone());
+					character_escapes.push(character_escape);
+				},
+			}
 		} else if reader.peek().is_some() {
 			characters.push(reader.pop().unwrap());
 			characters_spans.push(reader.prev_pos().unwrap().one_char_span());
@@ -578,6 +599,17 @@ fn parse_character_literal(reader: &mut Reader) -> Token {
 		};
 	}
 	let span = first.span_to_prev(reader).unwrap();
+
+	// Make sure that there are no invalid character escapes in the literal.
+	if let Some(character_escape_error) = character_escape_errors.first() {
+		return Token::CharacterLiteral(CharacterLiteral {
+			span,
+			character_escape: None,
+			value: Err(CharacterLiteralError::CharacterEscapeError(
+				character_escape_error.clone(),
+			)),
+		});
+	}
 
 	// Make sure that there are no non-escaped newline characters in the literal.
 	for character_span in characters_spans.iter() {
@@ -637,14 +669,20 @@ fn parse_string_literal(reader: &mut Reader) -> Token {
 
 	let mut string = String::new();
 	let mut character_escapes = vec![];
+	let mut character_escape_errors = vec![];
 	loop {
 		if reader.peek() == Some('\"') {
 			reader.skip();
 			break;
 		} else if reader.peek() == Some('\\') {
 			let character_escape = parse_character_escape(reader);
-			string.push(character_escape.produced_character);
-			character_escapes.push(character_escape);
+			match character_escape {
+				Err(error) => character_escape_errors.push(error),
+				Ok(character_escape) => {
+					string.push(character_escape.produced_character);
+					character_escapes.push(character_escape);
+				},
+			}
 		} else if reader.peek().is_some() {
 			string.push(reader.pop().unwrap());
 		} else {
@@ -659,8 +697,19 @@ fn parse_string_literal(reader: &mut Reader) -> Token {
 			});
 		};
 	}
-
 	let span = first.span_to_prev(reader).unwrap();
+
+	// Make sure that there are no invalid character escapes in the string.
+	if let Some(character_escape_error) = character_escape_errors.first() {
+		return Token::StringLiteral(StringLiteral {
+			span,
+			character_escapes,
+			value: Err(StringLiteralError::CharacterEscapeError(
+				character_escape_error.clone(),
+			)),
+		});
+	}
+
 	Token::StringLiteral(StringLiteral { span, character_escapes, value: Ok(string) })
 }
 
