@@ -572,7 +572,7 @@ impl Span {
 		Arc::ptr_eq(&self.source, &other.source)
 	}
 
-	fn combine(self, other: Span) -> Span {
+	pub(crate) fn combine(self, other: Span) -> Span {
 		assert!(self.is_in_same_source_than(&other));
 		Span {
 			source: self.source,
@@ -581,7 +581,7 @@ impl Span {
 		}
 	}
 
-	fn extend_to(self, pos: &Pos) -> Span {
+	pub(crate) fn extend_to(self, pos: &Pos) -> Span {
 		assert!(self.is_in_same_source_than_pos(pos));
 		Span {
 			source: self.source,

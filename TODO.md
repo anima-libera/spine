@@ -1,6 +1,5 @@
 ## Errors
 - character/string literals related:
-  - invalid escape: `\x` missing one or two hexadecimal digits
   - invalid escape: `\u`/`\d` missing opening curly
   - invalid escape: `\u`/`\d` missing closing curly
   - invalid escape: `\u`/`\d` with a number that contains invalid hexadecimal/decimal digits

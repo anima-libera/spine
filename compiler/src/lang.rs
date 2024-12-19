@@ -10,11 +10,11 @@ use crate::err::{
 	ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberInvalidDigit,
 	ArbitraryRadixNumberTooBigUnsupported, ArbitraryRadixNumberTooSmall,
 	ArbitraryRadixPrefixMissingClosingCurly, ArbitraryRadixPrefixMissingOpeningCurly,
-	CharacterEscapeUnexpectedCharacter, CharacterLiteralMissingCharacter,
-	CharacterLiteralMissingClosingQuote, CharacterLiteralMultipleCharacters,
-	CharacterLiteralNonEscapedNewline, IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing,
-	IntegerLiteralValueOutOfRange, StringLiteralMissingClosingQuote, UnexpectedCharacter,
-	UnknownRadixPrefixLetter,
+	CharacterEscapeMissingHexadecimalDigit, CharacterEscapeUnexpectedCharacter,
+	CharacterLiteralMissingCharacter, CharacterLiteralMissingClosingQuote,
+	CharacterLiteralMultipleCharacters, CharacterLiteralNonEscapedNewline,
+	IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing, IntegerLiteralValueOutOfRange,
+	StringLiteralMissingClosingQuote, UnexpectedCharacter, UnknownRadixPrefixLetter,
 };
 use crate::imm::{Imm, Imm64};
 use crate::src::{Pos, Reader, SourceCode, Span};
@@ -96,6 +96,7 @@ pub struct IntegerLiteral {
 #[derive(Debug, Clone)]
 pub enum CharacterEscapeError {
 	UnexpectedCharacter(CharacterEscapeUnexpectedCharacter),
+	MissingHexadecimalDigit(CharacterEscapeMissingHexadecimalDigit),
 }
 
 /// A character in a charater literal or in a string literal
@@ -497,10 +498,27 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 	let produced_character = match reader.pop().unwrap() {
 		'x' | 'X' => {
 			// `\x1b`, unicode code point (in `0..=255`) with exactly two hex digits.
-			let high = reader.pop().unwrap();
-			let low = reader.pop().unwrap();
-			let value =
-				any_radix_digit_to_value(high).unwrap() * 16 + any_radix_digit_to_value(low).unwrap();
+			let mut two_hex_digits: [Option<char>; 2] = [None, None];
+			#[allow(clippy::needless_range_loop)]
+			for i in 0..2 {
+				let character = reader.peek();
+				if character.is_some_and(|c| c.is_ascii_hexdigit()) {
+					two_hex_digits[i] = character;
+					reader.skip();
+				} else {
+					return Err(CharacterEscapeError::MissingHexadecimalDigit(
+						CharacterEscapeMissingHexadecimalDigit {
+							backslash_x_and_maybe_first_digit_span: start.span_to_prev(reader).unwrap(),
+							missing_hexadecimal_pos: character
+								.is_some()
+								.then(|| reader.next_pos().unwrap()),
+							one_digit_was_found: i == 1,
+						},
+					));
+				}
+			}
+			let value = any_radix_digit_to_value(two_hex_digits[0].unwrap()).unwrap() * 16
+				+ any_radix_digit_to_value(two_hex_digits[1].unwrap()).unwrap();
 			char::from_u32(value).unwrap()
 		},
 		'u' | 'U' => {

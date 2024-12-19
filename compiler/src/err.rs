@@ -130,6 +130,23 @@ pub struct CharacterEscapeUnexpectedCharacter {
 	pub(crate) invalid_character_pos: Pos,
 }
 
+/// When there are zero or only one hexadecimal digit after `\x` when two are expected.
+#[derive(Debug, Clone)]
+pub struct CharacterEscapeMissingHexadecimalDigit {
+	pub(crate) backslash_x_and_maybe_first_digit_span: Span,
+	/// If `None` then it means that end-of-file was found instead of an hexadecimal digit,
+	/// if `Some` then it means that an unexpected character was found in the place of
+	/// an expected hexadecimal digit.
+	pub(crate) missing_hexadecimal_pos: Option<Pos>,
+	/// Distinguish between `\x@` and `\xa@`,
+	/// where in the first case we did not even found the first of the two expected hex digits,
+	/// of the second case where we did find one hex digit but not the second one.
+	///
+	/// `false` means that we found no hex digit,
+	/// `true` means that we did find the first digit but the second one is missing.
+	pub(crate) one_digit_was_found: bool,
+}
+
 pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
 	UnknownIdentifier(Identifier),
@@ -149,6 +166,7 @@ pub enum CompilationError {
 	CharacterLiteralMissingClosingQuote(CharacterLiteralMissingClosingQuote),
 	StringLiteralMissingClosingQuote(StringLiteralMissingClosingQuote),
 	CharacterEscapeUnexpectedCharacter(CharacterEscapeUnexpectedCharacter),
+	CharacterEscapeMissingHexadecimalDigit(CharacterEscapeMissingHexadecimalDigit),
 }
 
 impl CompilationError {
@@ -195,6 +213,15 @@ impl CompilationError {
 				.backslash_pos
 				.span_to(&error.invalid_character_pos)
 				.unwrap(),
+			CompilationError::CharacterEscapeMissingHexadecimalDigit(error) => {
+				match &error.missing_hexadecimal_pos {
+					Some(pos) => error
+						.backslash_x_and_maybe_first_digit_span
+						.clone()
+						.extend_to(pos),
+					None => error.backslash_x_and_maybe_first_digit_span.clone(),
+				}
+			},
 		}
 	}
 
@@ -295,6 +322,33 @@ impl CompilationError {
 				"unknown character escape that begins by \"{}\"",
 				self.span().as_str()
 			),
+			CompilationError::CharacterEscapeMissingHexadecimalDigit(error) => {
+				if error.one_digit_was_found {
+					match &error.missing_hexadecimal_pos {
+						Some(pos) => format!(
+							"character escape \"{}\" must have a 2nd hex digit but \'{}\' is not a hex digit",
+							self.span().as_str(),
+							pos.as_char(),
+						),
+						None => format!(
+							"character escape \"{}\" must have a 2nd hex digit but there is only one",
+							self.span().as_str(),
+						),
+					}
+				} else {
+					match &error.missing_hexadecimal_pos {
+						Some(pos) => format!(
+							"character escape \"{}\" must have two hex digits but \'{}\' is not a hex digit",
+							self.span().as_str(),
+							pos.as_char(),
+						),
+						None => format!(
+							"character escape \"{}\" must have two hex digits but there are none",
+							self.span().as_str(),
+						),
+					}
+				}
+			},
 		}
 	}
 
@@ -392,6 +446,9 @@ impl HighStatement {
 					match character_escape_error {
 						CharacterEscapeError::UnexpectedCharacter(error) => {
 							CompilationError::CharacterEscapeUnexpectedCharacter(error)
+						},
+						CharacterEscapeError::MissingHexadecimalDigit(error) => {
+							CompilationError::CharacterEscapeMissingHexadecimalDigit(error)
 						},
 					}
 				}
