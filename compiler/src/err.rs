@@ -447,6 +447,7 @@ impl CompilationError {
 
 pub enum CompilationWarning {
 	MissingTerminatingSemicolon { statement_span: Span },
+	MissingBlockCommentCloseCurly { comment_span: Span },
 	NewlineInStringLiteral { newline_pos: Pos },
 }
 
@@ -464,6 +465,7 @@ impl CompilationWarning {
 			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
 				statement_span.clone()
 			},
+			CompilationWarning::MissingBlockCommentCloseCurly { comment_span } => comment_span.clone(),
 			CompilationWarning::NewlineInStringLiteral { newline_pos } => {
 				newline_pos.clone().one_char_span()
 			},
@@ -474,6 +476,9 @@ impl CompilationWarning {
 		match self {
 			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
 				"missing terminating semicolon \';\' at the end of this statement".to_string()
+			},
+			CompilationWarning::MissingBlockCommentCloseCurly { comment_span } => {
+				"missing close curly \'}\' at the end of this block comment".to_string()
 			},
 			CompilationWarning::NewlineInStringLiteral { .. } => {
 				"non-escaped newline character inside a string literal".to_string()
@@ -490,6 +495,10 @@ impl CompilationWarning {
 			CompilationWarning::MissingTerminatingSemicolon { statement_span } => Some(FixByRewrite {
 				description: "Add a terminating semicolon \';\'".to_string(),
 				new_code: statement_span.as_str().to_string() + ";",
+			}),
+			CompilationWarning::MissingBlockCommentCloseCurly { comment_span } => Some(FixByRewrite {
+				description: "Add a close curly \'}\'".to_string(),
+				new_code: comment_span.as_str().to_string() + "}",
 			}),
 			CompilationWarning::NewlineInStringLiteral { .. } => {
 				// TODO: propose to replace the non-escaped newline by `\n`
