@@ -390,10 +390,19 @@ impl Pos {
 	}
 
 	/// The position after `self`, if it exists in the source code (so not if it is end-of-file).
-	fn next(&self) -> Option<Pos> {
+	pub(crate) fn next(&self) -> Option<Pos> {
 		self
 			.without_source()
 			.next(&self.source)
+			.map(|pos| pos.with_source(Arc::clone(&self.source)))
+	}
+
+	/// The position before `self`, if it exists in the source code
+	/// (so not if `self` is the first character of its file).
+	pub(crate) fn prev(&self) -> Option<Pos> {
+		self
+			.without_source()
+			.prev(&self.source)
 			.map(|pos| pos.with_source(Arc::clone(&self.source)))
 	}
 

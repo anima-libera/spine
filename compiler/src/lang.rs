@@ -10,8 +10,9 @@ use crate::err::{
 	ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberInvalidDigit,
 	ArbitraryRadixNumberTooBigUnsupported, ArbitraryRadixNumberTooSmall,
 	ArbitraryRadixPrefixMissingClosingCurly, ArbitraryRadixPrefixMissingOpeningCurly,
-	CharacterEscapeInvalidDigit, CharacterEscapeMissingClosingCurly,
-	CharacterEscapeMissingHexadecimalDigit, CharacterEscapeMissingOpeningCurly,
+	CharacterEscapeInvalidDigit, CharacterEscapeInvalidUnicodeScalarValue,
+	CharacterEscapeMissingClosingCurly, CharacterEscapeMissingHexadecimalDigit,
+	CharacterEscapeMissingNumber, CharacterEscapeMissingOpeningCurly,
 	CharacterEscapeUnexpectedCharacter, CharacterLiteralMissingCharacter,
 	CharacterLiteralMissingClosingQuote, CharacterLiteralMultipleCharacters,
 	CharacterLiteralNonEscapedNewline, IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing,
@@ -102,6 +103,8 @@ pub enum CharacterEscapeError {
 	MissingOpeningCurly(CharacterEscapeMissingOpeningCurly),
 	MissingClosingCurly(CharacterEscapeMissingClosingCurly),
 	InvalidDigit(CharacterEscapeInvalidDigit),
+	InvalidUnicodeScalarValue(CharacterEscapeInvalidUnicodeScalarValue),
+	MissingNumber(CharacterEscapeMissingNumber),
 }
 
 /// A character in a charater literal or in a string literal
@@ -529,6 +532,8 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 		'u' | 'U' => {
 			// `\u{fffd}`, unicode code point with hex digits.
 
+			// TODO: Factorize with the 'd' | 'D' case!
+
 			let letter_pos = reader.prev_pos().unwrap();
 
 			// We popped `\u`, now we expect a `{`.
@@ -543,6 +548,7 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 			}
 			let open_curly_pos = reader.prev_pos().unwrap();
 
+			// Now we expect a number and a `}` without any whitespace.
 			let mut value = 0;
 			loop {
 				let character = reader.peek();
@@ -578,10 +584,33 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 					},
 				}
 			}
-			char::from_u32(value).unwrap()
+			let close_curly_pos = reader.prev_pos().unwrap();
+
+			// Make sure the number between `{` and `}` has at least one digit.
+			let Some(span_of_number) = open_curly_pos
+				.next()
+				.unwrap()
+				.span_to(&close_curly_pos.prev().unwrap())
+			else {
+				return Err(CharacterEscapeError::MissingNumber(
+					CharacterEscapeMissingNumber { span: start.span_to_prev(reader).unwrap() },
+				));
+			};
+
+			match char::from_u32(value) {
+				Some(character) => character,
+				None => {
+					let value_ = u64::from_str_radix(span_of_number.as_str(), 16).ok();
+					return Err(CharacterEscapeError::InvalidUnicodeScalarValue(
+						CharacterEscapeInvalidUnicodeScalarValue { span_of_number, value: value_ },
+					));
+				},
+			}
 		},
 		'd' | 'D' => {
 			// `\d{65533}`, unicode code point with decimal digits.
+
+			// TODO: Factorize with the 'u' | 'U' case!
 
 			let letter_pos = reader.prev_pos().unwrap();
 
@@ -597,6 +626,7 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 			}
 			let open_curly_pos = reader.prev_pos().unwrap();
 
+			// Now we expect a number and a `}` without any whitespace.
 			let mut value = 0;
 			loop {
 				let character = reader.peek();
@@ -632,7 +662,28 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 					},
 				}
 			}
-			char::from_u32(value).unwrap()
+			let close_curly_pos = reader.prev_pos().unwrap();
+
+			// Make sure the number between `{` and `}` has at least one digit.
+			let Some(span_of_number) = open_curly_pos
+				.next()
+				.unwrap()
+				.span_to(&close_curly_pos.prev().unwrap())
+			else {
+				return Err(CharacterEscapeError::MissingNumber(
+					CharacterEscapeMissingNumber { span: start.span_to_prev(reader).unwrap() },
+				));
+			};
+
+			match char::from_u32(value) {
+				Some(character) => character,
+				None => {
+					let value_ = span_of_number.as_str().parse().ok();
+					return Err(CharacterEscapeError::InvalidUnicodeScalarValue(
+						CharacterEscapeInvalidUnicodeScalarValue { span_of_number, value: value_ },
+					));
+				},
+			}
 		},
 		'e' => '\x1b', // Escape
 		'a' => '\x07', // Bell

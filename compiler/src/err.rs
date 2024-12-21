@@ -177,6 +177,20 @@ pub struct CharacterEscapeInvalidDigit {
 	pub(crate) span_of_slash_and_letter: Span,
 }
 
+/// A character described with an escape like `\u{ffffffffff}` is not a valid character
+/// as a Unicode scalar value is expected (like a Rust char).
+#[derive(Debug, Clone)]
+pub struct CharacterEscapeInvalidUnicodeScalarValue {
+	pub(crate) span_of_number: Span,
+	pub(crate) value: Option<u64>,
+}
+
+/// Something like `\u{}` or `\d{}`.
+#[derive(Debug, Clone)]
+pub struct CharacterEscapeMissingNumber {
+	pub(crate) span: Span,
+}
+
 pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
 	UnknownIdentifier(Identifier),
@@ -200,6 +214,8 @@ pub enum CompilationError {
 	CharacterEscapeMissingOpeningCurly(CharacterEscapeMissingOpeningCurly),
 	CharacterEscapeMissingClosingCurly(CharacterEscapeMissingClosingCurly),
 	CharacterEscapeInvalidDigit(CharacterEscapeInvalidDigit),
+	CharacterEscapeInvalidUnicodeScalarValue(CharacterEscapeInvalidUnicodeScalarValue),
+	CharacterEscapeMissingNumber(CharacterEscapeMissingNumber),
 }
 
 impl CompilationError {
@@ -264,6 +280,10 @@ impl CompilationError {
 			CompilationError::CharacterEscapeInvalidDigit(error) => {
 				error.invalid_digit_pos.clone().one_char_span()
 			},
+			CompilationError::CharacterEscapeInvalidUnicodeScalarValue(error) => {
+				error.span_of_number.clone()
+			},
+			CompilationError::CharacterEscapeMissingNumber(error) => error.span.clone(),
 		}
 	}
 
@@ -406,6 +426,17 @@ impl CompilationError {
 					_ => panic!(),
 				}
 			),
+			CompilationError::CharacterEscapeInvalidUnicodeScalarValue(error) => match error.value {
+				None => "this does not even fit in 8 bytes, it cannot possibly be a character code"
+					.to_string(),
+				Some(value) => {
+					format!("the number {value} (0x{value:x}) is not a Unicode scalar value")
+				},
+			},
+			CompilationError::CharacterEscapeMissingNumber(error) => format!(
+				"character escape \"{}\" is missing a number in the \"{{}}\" block",
+				error.span.as_str()
+			),
 		}
 	}
 
@@ -515,6 +546,12 @@ impl HighStatement {
 						},
 						CharacterEscapeError::InvalidDigit(error) => {
 							CompilationError::CharacterEscapeInvalidDigit(error)
+						},
+						CharacterEscapeError::InvalidUnicodeScalarValue(error) => {
+							CompilationError::CharacterEscapeInvalidUnicodeScalarValue(error)
+						},
+						CharacterEscapeError::MissingNumber(error) => {
+							CompilationError::CharacterEscapeMissingNumber(error)
 						},
 					}
 				}

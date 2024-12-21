@@ -1,6 +1,4 @@
 ## Errors
-- character/string literals related:
-  - invalid escape: `\x`/`\u`/`\d` with a number that is not a unicode scalar value
 - block comment missing closing curly
 - block statement missing closing curly
 - closing curly without a matching opening curly
