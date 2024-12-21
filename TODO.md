@@ -1,8 +1,5 @@
 ## Errors
 - character/string literals related:
-  - invalid escape: `\u`/`\d` missing opening curly
-  - invalid escape: `\u`/`\d` missing closing curly
-  - invalid escape: `\u`/`\d` with a number that contains invalid hexadecimal/decimal digits
   - invalid escape: `\x`/`\u`/`\d` with a number that is not a unicode scalar value
 - block comment missing closing curly
 - block statement missing closing curly

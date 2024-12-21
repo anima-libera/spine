@@ -147,6 +147,36 @@ pub struct CharacterEscapeMissingHexadecimalDigit {
 	pub(crate) one_digit_was_found: bool,
 }
 
+/// When `\u` or `\d` is not directly followed by `{`.
+#[derive(Debug, Clone)]
+pub struct CharacterEscapeMissingOpeningCurly {
+	/// Span of `\u` or `\d`.
+	pub(crate) span_of_slash_and_letter: Span,
+	/// Position of the caracter that comes just after `\u` or `\d`
+	/// and that was supposed to be `{` but that is not.
+	///
+	/// `None` if end-of-file.
+	pub(crate) pos_of_not_open_curly: Option<Pos>,
+}
+
+/// Something like `0u{aeae` or `0d{1919` but not followed by `}`
+#[derive(Debug, Clone)]
+pub struct CharacterEscapeMissingClosingCurly {
+	/// Span of `0u{` or `0d{`.
+	pub(crate) span_of_slash_letter_and_open_curly: Span,
+}
+
+/// A digit in the character escape number is not in the right base
+/// (10 for `\d{...}`, 16 for `\u{...}`).
+#[derive(Debug, Clone)]
+pub struct CharacterEscapeInvalidDigit {
+	pub(crate) invalid_digit_pos: Pos,
+	pub(crate) invalid_digit: char,
+	pub(crate) accepted_base: u32,
+	/// Span of `\u` or `\d`.
+	pub(crate) span_of_slash_and_letter: Span,
+}
+
 pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
 	UnknownIdentifier(Identifier),
@@ -167,6 +197,9 @@ pub enum CompilationError {
 	StringLiteralMissingClosingQuote(StringLiteralMissingClosingQuote),
 	CharacterEscapeUnexpectedCharacter(CharacterEscapeUnexpectedCharacter),
 	CharacterEscapeMissingHexadecimalDigit(CharacterEscapeMissingHexadecimalDigit),
+	CharacterEscapeMissingOpeningCurly(CharacterEscapeMissingOpeningCurly),
+	CharacterEscapeMissingClosingCurly(CharacterEscapeMissingClosingCurly),
+	CharacterEscapeInvalidDigit(CharacterEscapeInvalidDigit),
 }
 
 impl CompilationError {
@@ -221,6 +254,15 @@ impl CompilationError {
 						.extend_to(pos),
 					None => error.backslash_x_and_maybe_first_digit_span.clone(),
 				}
+			},
+			CompilationError::CharacterEscapeMissingOpeningCurly(error) => {
+				error.span_of_slash_and_letter.clone()
+			},
+			CompilationError::CharacterEscapeMissingClosingCurly(error) => {
+				error.span_of_slash_letter_and_open_curly.clone()
+			},
+			CompilationError::CharacterEscapeInvalidDigit(error) => {
+				error.invalid_digit_pos.clone().one_char_span()
 			},
 		}
 	}
@@ -349,6 +391,21 @@ impl CompilationError {
 					}
 				}
 			},
+			CompilationError::CharacterEscapeMissingOpeningCurly(error) => format!(
+				"this character escape must have an open curly \'{{\' just after \"{}\"",
+				error.span_of_slash_and_letter.as_str()
+			),
+			CompilationError::CharacterEscapeMissingClosingCurly(error) => {
+				"this character escape must have an close curly \'}}\' after the number".to_string()
+			},
+			CompilationError::CharacterEscapeInvalidDigit(error) => format!(
+				"encountered invalid {} digit before a close curly \'}}\' in character escape",
+				match error.accepted_base {
+					10 => "decimal",
+					16 => "hexadecimal",
+					_ => panic!(),
+				}
+			),
 		}
 	}
 
@@ -449,6 +506,15 @@ impl HighStatement {
 						},
 						CharacterEscapeError::MissingHexadecimalDigit(error) => {
 							CompilationError::CharacterEscapeMissingHexadecimalDigit(error)
+						},
+						CharacterEscapeError::MissingOpeningCurly(error) => {
+							CompilationError::CharacterEscapeMissingOpeningCurly(error)
+						},
+						CharacterEscapeError::MissingClosingCurly(error) => {
+							CompilationError::CharacterEscapeMissingClosingCurly(error)
+						},
+						CharacterEscapeError::InvalidDigit(error) => {
+							CompilationError::CharacterEscapeInvalidDigit(error)
 						},
 					}
 				}

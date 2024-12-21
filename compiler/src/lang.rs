@@ -10,11 +10,13 @@ use crate::err::{
 	ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberInvalidDigit,
 	ArbitraryRadixNumberTooBigUnsupported, ArbitraryRadixNumberTooSmall,
 	ArbitraryRadixPrefixMissingClosingCurly, ArbitraryRadixPrefixMissingOpeningCurly,
-	CharacterEscapeMissingHexadecimalDigit, CharacterEscapeUnexpectedCharacter,
-	CharacterLiteralMissingCharacter, CharacterLiteralMissingClosingQuote,
-	CharacterLiteralMultipleCharacters, CharacterLiteralNonEscapedNewline,
-	IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing, IntegerLiteralValueOutOfRange,
-	StringLiteralMissingClosingQuote, UnexpectedCharacter, UnknownRadixPrefixLetter,
+	CharacterEscapeInvalidDigit, CharacterEscapeMissingClosingCurly,
+	CharacterEscapeMissingHexadecimalDigit, CharacterEscapeMissingOpeningCurly,
+	CharacterEscapeUnexpectedCharacter, CharacterLiteralMissingCharacter,
+	CharacterLiteralMissingClosingQuote, CharacterLiteralMultipleCharacters,
+	CharacterLiteralNonEscapedNewline, IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing,
+	IntegerLiteralValueOutOfRange, StringLiteralMissingClosingQuote, UnexpectedCharacter,
+	UnknownRadixPrefixLetter,
 };
 use crate::imm::{Imm, Imm64};
 use crate::src::{Pos, Reader, SourceCode, Span};
@@ -97,6 +99,9 @@ pub struct IntegerLiteral {
 pub enum CharacterEscapeError {
 	UnexpectedCharacter(CharacterEscapeUnexpectedCharacter),
 	MissingHexadecimalDigit(CharacterEscapeMissingHexadecimalDigit),
+	MissingOpeningCurly(CharacterEscapeMissingOpeningCurly),
+	MissingClosingCurly(CharacterEscapeMissingClosingCurly),
+	InvalidDigit(CharacterEscapeInvalidDigit),
 }
 
 /// A character in a charater literal or in a string literal
@@ -266,13 +271,13 @@ fn parse_maybe_radix_prefix(reader: &mut Reader) -> Option<Result<RadixPrefix, R
 		// `0r{8}` sort of radix prefix (that can contain any supported radix number)
 		'r' | 'R' => {
 			// We popped `0r`, now we expect a `{`.
-			let open_curly = reader.pop();
-			if open_curly != Some('{') {
+			let has_open_curly = reader.skip_if_eq('{');
+			if !has_open_curly {
 				return Some(Err(
 					RadixPrefixError::ArbitraryRadixPrefixMissingOpeningCurly(
 						ArbitraryRadixPrefixMissingOpeningCurly {
 							span_of_0r: start.span_to(&radix_letter_pos).unwrap(),
-							pos_of_not_open_curly: reader.prev_pos(),
+							pos_of_not_open_curly: reader.next_pos(),
 						},
 					),
 				));
@@ -287,8 +292,8 @@ fn parse_maybe_radix_prefix(reader: &mut Reader) -> Option<Result<RadixPrefix, R
 			let radix_number_span = radix_number_start.span_to_prev(reader);
 
 			// We popped `0r{` and a radix number (maybe), now we expect a `}`.
-			let close_curly = reader.pop();
-			if close_curly != Some('}') {
+			let has_close_curly = reader.skip_if_eq('}');
+			if !has_close_curly {
 				return Some(Err(
 					RadixPrefixError::ArbitraryRadixPrefixMissingClosingCurly(
 						ArbitraryRadixPrefixMissingClosingCurly {
@@ -523,28 +528,109 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 		},
 		'u' | 'U' => {
 			// `\u{fffd}`, unicode code point with hex digits.
-			assert_eq!(reader.pop(), Some('{'));
+
+			let letter_pos = reader.prev_pos().unwrap();
+
+			// We popped `\u`, now we expect a `{`.
+			let has_open_curly = reader.skip_if_eq('{');
+			if !has_open_curly {
+				return Err(CharacterEscapeError::MissingOpeningCurly(
+					CharacterEscapeMissingOpeningCurly {
+						span_of_slash_and_letter: start.span_to(&reader.prev_pos().unwrap()).unwrap(),
+						pos_of_not_open_curly: reader.next_pos(),
+					},
+				));
+			}
+			let open_curly_pos = reader.prev_pos().unwrap();
+
 			let mut value = 0;
 			loop {
-				let character = reader.pop().unwrap();
-				if character == '}' {
-					break;
+				let character = reader.peek();
+				match character {
+					Some('}') => {
+						reader.skip();
+						break;
+					},
+					Some(c) if c.is_ascii_hexdigit() => {
+						reader.skip();
+						value = value * 16 + any_radix_digit_to_value(c).unwrap();
+					},
+					Some(c) => {
+						let invalid_digit_pos = reader.next_pos().unwrap();
+						let invalid_digit = invalid_digit_pos.as_char();
+						return Err(CharacterEscapeError::InvalidDigit(
+							CharacterEscapeInvalidDigit {
+								invalid_digit_pos,
+								invalid_digit,
+								accepted_base: 16,
+								span_of_slash_and_letter: start.span_to(&letter_pos).unwrap(),
+							},
+						));
+					},
+					None => {
+						return Err(CharacterEscapeError::MissingClosingCurly(
+							CharacterEscapeMissingClosingCurly {
+								span_of_slash_letter_and_open_curly: start
+									.span_to(&open_curly_pos)
+									.unwrap(),
+							},
+						))
+					},
 				}
-				value = value * 16 + any_radix_digit_to_value(character).unwrap();
 			}
 			char::from_u32(value).unwrap()
 		},
 		'd' | 'D' => {
 			// `\d{65533}`, unicode code point with decimal digits.
-			assert_eq!(reader.pop(), Some('{'));
+
+			let letter_pos = reader.prev_pos().unwrap();
+
+			// We popped `\d`, now we expect a `{`.
+			let has_open_curly = reader.skip_if_eq('{');
+			if !has_open_curly {
+				return Err(CharacterEscapeError::MissingOpeningCurly(
+					CharacterEscapeMissingOpeningCurly {
+						span_of_slash_and_letter: start.span_to(&reader.prev_pos().unwrap()).unwrap(),
+						pos_of_not_open_curly: reader.next_pos(),
+					},
+				));
+			}
+			let open_curly_pos = reader.prev_pos().unwrap();
+
 			let mut value = 0;
 			loop {
-				let character = reader.pop().unwrap();
-				if character == '}' {
-					break;
+				let character = reader.peek();
+				match character {
+					Some('}') => {
+						reader.skip();
+						break;
+					},
+					Some(c) if c.is_ascii_digit() => {
+						reader.skip();
+						value = value * 10 + any_radix_digit_to_value(c).unwrap();
+					},
+					Some(c) => {
+						let invalid_digit_pos = reader.next_pos().unwrap();
+						let invalid_digit = invalid_digit_pos.as_char();
+						return Err(CharacterEscapeError::InvalidDigit(
+							CharacterEscapeInvalidDigit {
+								invalid_digit_pos,
+								invalid_digit,
+								accepted_base: 10,
+								span_of_slash_and_letter: start.span_to(&letter_pos).unwrap(),
+							},
+						));
+					},
+					None => {
+						return Err(CharacterEscapeError::MissingClosingCurly(
+							CharacterEscapeMissingClosingCurly {
+								span_of_slash_letter_and_open_curly: start
+									.span_to(&open_curly_pos)
+									.unwrap(),
+							},
+						))
+					},
 				}
-				assert!(character.is_ascii_digit());
-				value = value * 10 + any_radix_digit_to_value(character).unwrap();
 			}
 			char::from_u32(value).unwrap()
 		},
