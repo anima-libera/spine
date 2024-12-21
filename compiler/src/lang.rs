@@ -186,6 +186,7 @@ struct Comment {
 	span: Span,
 	is_block: bool,
 	is_doc: bool,
+	is_missing_expected_closing_curly: bool,
 }
 
 #[derive(Debug)]
@@ -911,15 +912,33 @@ fn parse_whitespace_and_comments(reader: &mut Reader) -> Token {
 		// We encountered a comment (and already popped the first `--` of it).
 		let is_doc = reader.skip_if_eq('-');
 		let is_block = reader.skip_if_eq('{');
+		let mut is_missing_expected_closing_curly = false;
 		if is_block {
-			reader.skip_while(|c| c != '}');
-			reader.skip();
+			// Block comment, that supports nested blocks.
+			let mut depth = 1;
+			loop {
+				reader.skip_while(|c| c != '{' && c != '}');
+				match reader.pop() {
+					Some('{') => depth += 1,
+					Some('}') => depth -= 1,
+					Some(_) => unreachable!(),
+					None => {
+						is_missing_expected_closing_curly = true;
+						break;
+					},
+				}
+				reader.skip();
+				if depth == 0 {
+					break;
+				}
+			}
 		} else {
+			// Line comment.
 			reader.skip_while(|c| c != '\n');
 			reader.skip();
 		}
 		let span = first.span_to_prev(reader).unwrap();
-		let comment = Comment { span, is_block, is_doc };
+		let comment = Comment { span, is_block, is_doc, is_missing_expected_closing_curly };
 		comments.push(comment);
 	}
 	let span = first.span_to_prev(reader).unwrap();

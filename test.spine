@@ -25,7 +25,8 @@ kwpc kwpc kwpc kwpc 'o' 'w' 'o' '\n';
 {;;;;;} -- Epic block statement
 
 --{ Block comment
-    that can span multiple lines }
+    that can span multiple lines
+    and that can have nested blocks {{{}}} }
 
 -- Terminates process execution. Segfault probably occurs if it is missing.
 kwexit;
