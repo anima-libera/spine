@@ -1,6 +1,5 @@
 ## Errors
 - block comment missing closing curly
-- block statement missing closing curly
 - closing curly without a matching opening curly
 
 ## Feature improvements

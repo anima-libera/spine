@@ -927,7 +927,6 @@ fn parse_whitespace_and_comments(reader: &mut Reader) -> Token {
 						break;
 					},
 				}
-				reader.skip();
 				if depth == 0 {
 					break;
 				}
@@ -1033,7 +1032,7 @@ pub enum HighStatement {
 	Block {
 		statements: Vec<HighStatement>,
 		curly_open: Pos,
-		curly_close: Pos,
+		curly_close: Option<Pos>,
 	},
 	/// A semicolon with nothing between it and the previous one or the start of file.
 	/// It is valid syntax and does nothing.
@@ -1059,8 +1058,15 @@ impl HighStatement {
 				};
 				start.span_to(end).unwrap()
 			},
-			HighStatement::Block { curly_open, curly_close, .. } => {
-				curly_open.span_to(curly_close).unwrap()
+			HighStatement::Block { statements, curly_open, curly_close } => {
+				let end = if let Some(curly_close) = curly_close {
+					curly_close
+				} else if let Some(last_statement) = statements.last() {
+					&last_statement.span().end_pos()
+				} else {
+					curly_open
+				};
+				curly_open.span_to(end).unwrap()
 			},
 			HighStatement::Empty { semicolon } => semicolon.clone().one_char_span(),
 			HighStatement::Error { span, .. } => span.clone(),
@@ -1207,11 +1213,13 @@ fn parse_block_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 	};
 	let mut statements = vec![];
 	let curly_close = loop {
-		let first_token = tokenizer.peek_token().unwrap();
-		if let Token::CurlyClose(curly_close) = first_token {
+		let first_token = tokenizer.peek_token();
+		if let Some(Token::CurlyClose(curly_close)) = first_token {
 			let curly_close = curly_close.clone();
 			tokenizer.pop_token();
-			break curly_close.clone();
+			break Some(curly_close.clone());
+		} else if first_token.is_none() {
+			break None;
 		}
 		let statement = parse_statement(tokenizer);
 		statements.push(statement);

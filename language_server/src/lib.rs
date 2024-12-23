@@ -294,7 +294,11 @@ impl LanguageServer for SpineLanguageServer {
 			for statement in statements.iter() {
 				if statement.span().contains_lsp_position(pos) {
 					if let HighStatement::Block { statements, curly_open, curly_close } = statement {
-						if curly_open.is_lsp_position(pos) || curly_close.is_lsp_position(pos) {
+						if curly_open.is_lsp_position(pos)
+							|| curly_close
+								.as_ref()
+								.is_some_and(|curly_close| curly_close.is_lsp_position(pos))
+						{
 							return Some(statement);
 						} else {
 							return statement_search(statements, pos);
@@ -333,8 +337,10 @@ impl LanguageServer for SpineLanguageServer {
 					if curly_open.is_lsp_position(pos) {
 						break 'token_thingy Some(TokenThingy::CurlyOpen(curly_open));
 					}
-					if curly_close.is_lsp_position(pos) {
-						break 'token_thingy Some(TokenThingy::CurlyClose(curly_close));
+					if let Some(curly_close) = curly_close {
+						if curly_close.is_lsp_position(pos) {
+							break 'token_thingy Some(TokenThingy::CurlyClose(curly_close));
+						}
 					}
 				},
 				HighStatement::Empty { semicolon } => {

@@ -448,6 +448,7 @@ impl CompilationError {
 pub enum CompilationWarning {
 	MissingTerminatingSemicolon { statement_span: Span },
 	MissingBlockCommentCloseCurly { comment_span: Span },
+	MissingBlockStatementCloseCurly { block_statement_span: Span },
 	NewlineInStringLiteral { newline_pos: Pos },
 }
 
@@ -466,6 +467,9 @@ impl CompilationWarning {
 				statement_span.clone()
 			},
 			CompilationWarning::MissingBlockCommentCloseCurly { comment_span } => comment_span.clone(),
+			CompilationWarning::MissingBlockStatementCloseCurly { block_statement_span } => {
+				block_statement_span.clone()
+			},
 			CompilationWarning::NewlineInStringLiteral { newline_pos } => {
 				newline_pos.clone().one_char_span()
 			},
@@ -479,6 +483,9 @@ impl CompilationWarning {
 			},
 			CompilationWarning::MissingBlockCommentCloseCurly { comment_span } => {
 				"missing close curly \'}\' at the end of this block comment".to_string()
+			},
+			CompilationWarning::MissingBlockStatementCloseCurly { block_statement_span } => {
+				"missing close curly \'}\' at the end of this block statement".to_string()
 			},
 			CompilationWarning::NewlineInStringLiteral { .. } => {
 				"non-escaped newline character inside a string literal".to_string()
@@ -500,6 +507,12 @@ impl CompilationWarning {
 				description: "Add a close curly \'}\'".to_string(),
 				new_code: comment_span.as_str().to_string() + "}",
 			}),
+			CompilationWarning::MissingBlockStatementCloseCurly { block_statement_span } => {
+				Some(FixByRewrite {
+					description: "Add a close curly \'}\'".to_string(),
+					new_code: block_statement_span.as_str().to_string() + "}",
+				})
+			},
 			CompilationWarning::NewlineInStringLiteral { .. } => {
 				// TODO: propose to replace the non-escaped newline by `\n`
 				None
@@ -722,11 +735,16 @@ impl HighStatement {
 					}
 				}
 			},
-			HighStatement::Block { statements, .. } => {
+			HighStatement::Block { statements, curly_close, .. } => {
 				for statement in statements {
 					let (mut sub_errors, mut sub_warnings) = statement.get_errors_and_warnings();
 					errors.append(&mut sub_errors);
 					warnings.append(&mut sub_warnings);
+				}
+				if curly_close.is_none() {
+					warnings.push(CompilationWarning::MissingBlockStatementCloseCurly {
+						block_statement_span: self.span(),
+					});
 				}
 			},
 			_ => {},
