@@ -21,6 +21,7 @@ fn main() {
 	let source_file_path = option_value(&["-f", "--source-file"]);
 	let raw_source = option_value(&["-r", "--raw-source"]);
 	let output_file_path = option_value(&["-o", "--output-file"]).unwrap_or("b");
+	let run = has_flag(&["--run"]);
 	let verbose = has_flag(&["-v", "--verbose"]);
 	let license = has_flag(&["--license"]);
 	let help = has_flag(&["-h", "--help"]);
@@ -46,6 +47,7 @@ fn main() {
 		println!("  -f --source-file   Path to the source file to compile.");
 		println!("  -r --raw-source    Source code to compile.");
 		println!("  -o --output-file   Path to the binary to be produced (default is \"b\").");
+		println!("     --run           (flag) Run the binary if successfully compiled.");
 		println!("  -v --verbose       (flag) Compiler will print more stuff.");
 		println!("     --license       (flag) Compiler will print licensing information.");
 		println!("  -h --help          (flag) Print this help message.");
@@ -143,4 +145,8 @@ fn main() {
 	}
 	std::fs::write(output_file_path, bin.to_binary()).unwrap();
 	chmod_x(output_file_path);
+
+	if run {
+		let _ = std::process::Command::new("./b").spawn();
+	}
 }

@@ -21,7 +21,7 @@
 - display AST (like rust-analyzer allows to do)
 
 ## CLI new features
-- run the binary after compilation, if compilation succeeded; pass arguments to the binary
+- pass arguments to the binary when using `--run`
 - print the errors and warnings, but do not compile
 - print tokens
 - print AST

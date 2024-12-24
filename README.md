@@ -26,13 +26,13 @@ Installing is necessary for the VSCode extension to use the language server.
 
 Usage:
 ```sh
-spine -f test.spine -o binary && ./binary
+spine -f test.spine -o binary --run
 ```
 (replace `spine` with `cargo run --` if you just `git clone`-ed or downloaded the repo)
 
 Can also provide raw source code in command line:
 ```sh
-spine -r "kwps \"haiii :3\\n\"; kwexit;" && ./b
+spine -r "kwps \"haiii :3\\n\"; kwexit;" --run
 ```
 (woa what an amazing feature!!!¡¡)
 
