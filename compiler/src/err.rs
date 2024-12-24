@@ -16,6 +16,11 @@ pub struct UnexpectedCharacter {
 	pub character: char,
 }
 
+#[derive(Debug, Clone)]
+pub struct UnexpectedClosingCurly {
+	pub pos: Pos,
+}
+
 /// Something like `0y`.
 #[derive(Debug, Clone)]
 pub struct UnknownRadixPrefixLetter {
@@ -193,6 +198,7 @@ pub struct CharacterEscapeMissingNumber {
 
 pub enum CompilationError {
 	UnexpectedCharacter(UnexpectedCharacter),
+	UnexpectedClosingCurly(UnexpectedClosingCurly),
 	UnknownIdentifier(Identifier),
 	UnknownRadixPrefixLetter(UnknownRadixPrefixLetter),
 	ArbitraryRadixPrefixMissingOpeningCurly(ArbitraryRadixPrefixMissingOpeningCurly),
@@ -222,6 +228,7 @@ impl CompilationError {
 	pub fn span(&self) -> Span {
 		match self {
 			CompilationError::UnexpectedCharacter(error) => error.pos.clone().one_char_span(),
+			CompilationError::UnexpectedClosingCurly(error) => error.pos.clone().one_char_span(),
 			CompilationError::UnknownIdentifier(error) => error.span.clone(),
 			CompilationError::UnknownRadixPrefixLetter(error) => {
 				error.radix_letter_pos.clone().one_char_span()
@@ -293,6 +300,10 @@ impl CompilationError {
 				"character \'{}\' is unexpected here and causes a parsing error",
 				error.character
 			),
+			CompilationError::UnexpectedClosingCurly(error) => {
+				"unexpected close curly \'}\' that does not match with a previous open curly"
+					.to_string()
+			},
 			CompilationError::UnknownIdentifier(error) => {
 				format!("unknown identifier \"{}\"", error.name)
 			},
@@ -305,7 +316,7 @@ impl CompilationError {
 				error.span_of_0r.as_str()
 			),
 			CompilationError::ArbitraryRadixPrefixMissingClosingCurly(error) => {
-				"arbitrary radix prefix must have an close curly \'}}\' after the radix number"
+				"arbitrary radix prefix must have an close curly \'}\' after the radix number"
 					.to_string()
 			},
 			CompilationError::ArbitraryRadixPrefixMissingRadixNumber(error) => format!(
@@ -416,7 +427,7 @@ impl CompilationError {
 				error.span_of_slash_and_letter.as_str()
 			),
 			CompilationError::CharacterEscapeMissingClosingCurly(error) => {
-				"this character escape must have an close curly \'}}\' after the number".to_string()
+				"this character escape must have an close curly \'}\' after the number".to_string()
 			},
 			CompilationError::CharacterEscapeInvalidDigit(error) => format!(
 				"encountered invalid {} digit before a close curly \'}}\' in character escape",
@@ -542,12 +553,17 @@ impl HighStatement {
 		let mut warnings = vec![];
 		#[allow(clippy::collapsible_match)]
 		match self {
-			HighStatement::Error { unexpected_characters, .. } => {
+			HighStatement::SomeUnexpectedCharacters { unexpected_characters, .. } => {
 				for unexpected_character in unexpected_characters.iter() {
 					errors.push(CompilationError::UnexpectedCharacter(
 						unexpected_character.clone(),
 					));
 				}
+			},
+			HighStatement::UnexpectedClosingCurly { pos } => {
+				errors.push(CompilationError::UnexpectedClosingCurly(
+					UnexpectedClosingCurly { pos: pos.clone() },
+				));
 			},
 			HighStatement::Code { instructions, semicolon } => {
 				fn character_escape_error_to_compilation_error(

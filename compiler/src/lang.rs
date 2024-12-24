@@ -1036,13 +1036,17 @@ pub enum HighStatement {
 	},
 	/// A semicolon with nothing between it and the previous one or the start of file.
 	/// It is valid syntax and does nothing.
-	Empty { semicolon: Pos },
+	Empty {
+		semicolon: Pos,
+	},
 	/// The compiler could not parse this piece of source code into a proper statement.
-	/// This should produce a compile-time error.
-	Error {
+	SomeUnexpectedCharacters {
 		span: Span,
 		unexpected_characters: Vec<UnexpectedCharacter>,
 		semicolon: Option<Pos>,
+	},
+	UnexpectedClosingCurly {
+		pos: Pos,
 	},
 }
 
@@ -1069,7 +1073,8 @@ impl HighStatement {
 				curly_open.span_to(end).unwrap()
 			},
 			HighStatement::Empty { semicolon } => semicolon.clone().one_char_span(),
-			HighStatement::Error { span, .. } => span.clone(),
+			HighStatement::SomeUnexpectedCharacters { span, .. } => span.clone(),
+			HighStatement::UnexpectedClosingCurly { pos, .. } => pos.clone().one_char_span(),
 		}
 	}
 }
@@ -1172,7 +1177,7 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 			},
 			Some(Token::WhitespaceAndComments(_)) => {},
 			Some(Token::Semicolon(span)) => break 'instructions Some(span),
-			Some(Token::CurlyOpen(_span)) => panic!(),
+			Some(Token::CurlyOpen(_span)) => unreachable!(),
 			Some(Token::CurlyClose(_span)) => unreachable!(),
 			Some(Token::UnexpectedCharacter(unexpected)) => {
 				unexpected_characters.push(unexpected);
@@ -1199,7 +1204,7 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 			end = semicolon.clone();
 		}
 		let span = start.span_to(&end).unwrap();
-		HighStatement::Error { span, unexpected_characters, semicolon }
+		HighStatement::SomeUnexpectedCharacters { span, unexpected_characters, semicolon }
 	} else if instructions.is_empty() {
 		HighStatement::Empty { semicolon: semicolon.unwrap() }
 	} else {
@@ -1230,8 +1235,14 @@ fn parse_block_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 fn parse_program(tokenizer: &mut Tokenizer) -> HighProgram {
 	let mut statements = vec![];
 	while tokenizer.peek_token().is_some() {
-		let statement = parse_statement(tokenizer);
-		statements.push(statement);
+		if let Some(Token::CurlyClose(curly_close)) = tokenizer.peek_token() {
+			let curly_close = curly_close.clone();
+			tokenizer.pop_token();
+			statements.push(HighStatement::UnexpectedClosingCurly { pos: curly_close });
+		} else {
+			let statement = parse_statement(tokenizer);
+			statements.push(statement);
+		}
 	}
 	let source = Arc::clone(tokenizer.reader.source());
 	HighProgram { source, statements }
@@ -1313,7 +1324,8 @@ fn compile_statement_to_low_level_statements(
 ) {
 	match statement {
 		HighStatement::Empty { .. } => {},
-		HighStatement::Error { .. } => panic!(),
+		HighStatement::SomeUnexpectedCharacters { .. } => panic!(),
+		HighStatement::UnexpectedClosingCurly { .. } => panic!(),
 		HighStatement::Block { statements, .. } => {
 			for statement in statements {
 				compile_statement_to_low_level_statements(statement, low_statements);

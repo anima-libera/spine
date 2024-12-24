@@ -348,7 +348,10 @@ impl LanguageServer for SpineLanguageServer {
 						break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
 					}
 				},
-				HighStatement::Error { .. } => {
+				HighStatement::SomeUnexpectedCharacters { .. } => {
+					break 'token_thingy None;
+				},
+				HighStatement::UnexpectedClosingCurly { .. } => {
 					break 'token_thingy None;
 				},
 			}
@@ -369,7 +372,8 @@ impl LanguageServer for SpineLanguageServer {
 							format!("Code statement of {} insructions", instructions.len()),
 						HighStatement::Block { ref statements, .. } =>
 							format!("Block statement of {} statements", statements.len()),
-						HighStatement::Error { .. } => "Error".to_string(),
+						HighStatement::SomeUnexpectedCharacters { .. } => "Error".to_string(),
+						HighStatement::UnexpectedClosingCurly { .. } => "Error".to_string(),
 					},
 					if statement_line_range.0 == statement_line_range.1 {
 						format!("On line {}", statement_line_range.0.one_based())

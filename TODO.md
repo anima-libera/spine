@@ -1,6 +1,5 @@
 ## Errors
-- block comment missing closing curly
-- closing curly without a matching opening curly
+- block comment missing closing curly (to be actually displayed when comments are not ignored)
 
 ## Feature improvements
 - integer literals with a negative sign
