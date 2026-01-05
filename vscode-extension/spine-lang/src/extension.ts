@@ -1,3 +1,4 @@
+import { opendir, opendirSync } from "fs";
 import * as path from "path";
 import { workspace, ExtensionContext } from "vscode";
 import * as vscode from "vscode";
@@ -14,6 +15,7 @@ let client: LanguageClient;
 
 export function activate(context: ExtensionContext) {
 	console.log("uwu");
+	console.log("owo");
 
 	const fardCommand = vscode.commands.registerCommand("spine-lang.fard", () => {
 		vscode.window.showInformationMessage("Jaaj");
@@ -38,7 +40,7 @@ export function activate(context: ExtensionContext) {
 
 	const clientOptions: LanguageClientOptions = {
 		documentSelector: [{ scheme: "file", language: "spine" }],
-		outputChannel: vscode.window.createOutputChannel("Spine language server"),
+		outputChannel: vscode.window.createOutputChannel("Spine Language Server"),
 	};
 
 	client = new LanguageClient(

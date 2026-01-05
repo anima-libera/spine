@@ -19,6 +19,7 @@
 - semantic tokens
 - display tokens (like rust-analyzer allows to do)
 - display AST (like rust-analyzer allows to do)
+- FIX the fact that VSCode needs to be opened from terminal to be able to run the `spine --lsp` command (path env shenanigans?)
 
 ## CLI new features
 - pass arguments to the binary when using `--run`

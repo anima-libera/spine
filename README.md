@@ -53,7 +53,9 @@ The extension's VSIX file can be installed in VSCode
 code --install-extension vscode-extension/spine-lang/spine-lang-0.0.1.vsix
 ```
 
-The VSCode extension uses a language server (fancy!) which is in the Spine compiler. The VSCode extension runs the language server by running a shell command with the name `spine`, which only works if Spine is installed "globally", see [how to install](#installing).
+The VSCode extension uses a language server (fancy!) which is in the Spine compiler. The VSCode extension runs the language server by running the shell command `spine --lsp`, which only works if Spine is installed "globally", see [how to install](#installing).
+
+Note: I happen to have some trouble with that if I don't open VSCode from the terminal (probably due to PATH env variable shenanigans).
 
 ## Not building the language server
 
