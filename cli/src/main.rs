@@ -147,6 +147,7 @@ fn main() {
 	chmod_x(output_file_path);
 
 	if run {
-		let _ = std::process::Command::new("./b").spawn();
+		let command = format!("./{output_file_path}");
+		let _ = std::process::Command::new(command).spawn();
 	}
 }
