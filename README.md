@@ -66,8 +66,8 @@ Building without the language server part makes the compiler binary significantl
 ## Spine programming language tour
 
 ```
-kwps "haiii world!!!\n"; -- uwu
-kwexit;                        -- dont forget, or else segfault
+kwps "haiii world!!!\n";   -- uwu
+kwexit;                    -- dont forget, or else segfault
 ```
 
 ### Features and syntax
@@ -138,15 +138,15 @@ The hexadecimal digits can be uppercase.
 
 ### List of features
 
-- Compiled to machine language (not to llvm-ir, not to textual assembly, not to some other compiled language, but to actual binary like our ancestors used to write (no they didn't xd this is mostly for fun, and to get the achievement)). The machine code generation does not use dependencies (that explains why it is bad and unoptimized).
-- The parser is also hand written, no dependencies there, like the Egyptians used to do 3000 BC.
+- Compiled to machine language (actual ELF x86_64 binary executable is directly emitted, like our ancestors used to write (its fun idc)). The machine code generation does not use dependencies (for fun and because i love pain).
+- The parser is also hand written like the Egyptians used to do 3000 BC.
 - VSCode extension (with language server!).
 - Errors and warnings (they even show up in VSCode, some of them propose quickfixes!).
-- Numbers and strings. Strings can be printed (don't ask about the numbers please).
+- Numbers and strings. Strings can be printed (don't ask about the numbers for now).
 
 ## License
 
-Copyright © 2024 Jeanne DEMOUSSEL.
+Copyright © 2024-2026 Jeanne DEMOUSSEL.
 
 This project is licensed under either of
 
