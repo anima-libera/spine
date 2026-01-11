@@ -1,19 +1,9 @@
-import { opendir, opendirSync } from "fs";
-import * as path from "path";
-import { workspace, ExtensionContext } from "vscode";
 import * as vscode from "vscode";
+import * as lsp from "vscode-languageclient/node";
 
-import {
-	Executable,
-	LanguageClient,
-	LanguageClientOptions,
-	ServerOptions,
-	TransportKind,
-} from "vscode-languageclient/node";
+let client: lsp.LanguageClient;
 
-let client: LanguageClient;
-
-export function activate(context: ExtensionContext) {
+export function activate(context: vscode.ExtensionContext) {
 	console.log("uwu");
 	console.log("owo");
 
@@ -23,9 +13,9 @@ export function activate(context: ExtensionContext) {
 	});
 	context.subscriptions.push(fardCommand);
 
-	const spine_path = process.env.HOME + "/.cargo/bin/spine"
-	const run: Executable = {
-		command: spine_path,
+	const spineExecutablePath = process.env.HOME + "/.cargo/bin/spine"
+	const runLanguageServer: lsp.Executable = {
+		command: spineExecutablePath,
 		args: ["--lsp"],
 		options: {
 			env: {
@@ -34,17 +24,15 @@ export function activate(context: ExtensionContext) {
 		},
 	};
 
-	const serverOptions: ServerOptions = {
-		run,
-		debug: run,
+	const serverOptions: lsp.ServerOptions = {
+		run: runLanguageServer,
+		debug: runLanguageServer,
 	};
-
-	const clientOptions: LanguageClientOptions = {
+	const clientOptions: lsp.LanguageClientOptions = {
 		documentSelector: [{ scheme: "file", language: "spine" }],
 		outputChannel: vscode.window.createOutputChannel("Spine Language Server"),
 	};
-
-	client = new LanguageClient(
+	client = new lsp.LanguageClient(
 		"spine-language-server",
 		"Spine Language Server",
 		serverOptions,
@@ -64,7 +52,7 @@ export function activate(context: ExtensionContext) {
 	statusBar.tooltip.isTrusted = true;
 	statusBar.tooltip.supportThemeIcons = true;
 	statusBar.command = "spine-lang.fard";
-	//sstatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+	//statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 	statusBar.show();
 
 	client.onReady().then(() => {
