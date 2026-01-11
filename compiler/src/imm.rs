@@ -59,7 +59,7 @@ impl_raw_is_zero!(Raw32);
 impl_raw_is_zero!(Raw64);
 
 macro_rules! impl_raw_to_bytes {
-	($raw_n:ty, $fn_name:ident, $as_unsigned:ty, $as_signed:ty, $size:literal) => {
+	($raw_n:ty, $fn_name:ident, $as_signed:ty, $as_unsigned:ty, $size:literal) => {
 		impl $raw_n {
 			pub(crate) fn $fn_name(self) -> [u8; $size] {
 				match self {
