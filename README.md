@@ -20,7 +20,7 @@ or (after `git clone`-ing or downloading the repo)
 cargo install --path cli --locked
 ```
 
-Installing is necessary for the VSCode extension to use the language server.
+Installing this way is necessary for the VSCode extension to use the language server, because the extension runs the language server using the spine executable that is expected to be at `~/.cargo/bin/spine`.
 
 ## Usage
 
@@ -53,9 +53,7 @@ The extension's VSIX file can be installed in VSCode
 code --install-extension vscode-extension/spine-lang/spine-lang-0.0.1.vsix
 ```
 
-The VSCode extension uses a language server (fancy!) which is in the Spine compiler. The VSCode extension runs the language server by running the shell command `spine --lsp`, which only works if Spine is installed "globally", see [how to install](#installing).
-
-Note: I happen to have some trouble with that if I don't open VSCode from the terminal (probably due to PATH env variable shenanigans).
+The VSCode extension uses a language server (fancy!) which is in the Spine compiler. The VSCode extension runs the language server by running the shell command `{$HOME}/.cargo/bin/spine --lsp` (see [how to install](#installing)).
 
 ## Not building the language server
 

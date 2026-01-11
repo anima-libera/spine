@@ -23,8 +23,9 @@ export function activate(context: ExtensionContext) {
 	});
 	context.subscriptions.push(fardCommand);
 
+	const spine_path = process.env.HOME + "/.cargo/bin/spine"
 	const run: Executable = {
-		command: "spine",
+		command: spine_path,
 		args: ["--lsp"],
 		options: {
 			env: {
