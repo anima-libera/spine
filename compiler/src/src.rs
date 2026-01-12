@@ -7,16 +7,16 @@ use std::{cmp::Ordering, fmt::Debug, path::Path, sync::Arc};
 /// One pice of source code, for example one source file.
 ///
 /// Used in [`Arc`]s so that many objects can access it.
-/// For example [`SourceCodeSpan`]s have an `Arc` to the source code they are a slice of.
+/// For example [`Span`]s have an `Arc` to the source code they are a slice of.
 ///
-/// `Arc` instead of `Rc` because `tower_lsp::LanguageServer`` requires `Send` and `Sync`
+/// `Arc` instead of `Rc` because `tower_lsp::LanguageServer` requires `Send` and `Sync`
 /// so the language server needs to be `Sync` and `Rc` is not.
 #[derive(Debug)]
 pub struct SourceCode {
 	/// The content of this piece of source code.
 	/// If this comes from a file then this is the content of the file.
 	text: String,
-	/// The name of this piece of the source code.
+	/// The name of this piece of source code.
 	/// If this comes from a file then this is the file path.
 	name: String,
 	line_starts: LineStartTable,
@@ -30,7 +30,7 @@ impl SourceCode {
 		Some(SourceCode { text, name, line_starts })
 	}
 
-	/// Sometimes a pice of source code does not come from a file,
+	/// Sometimes a piece of source code does not come from a file,
 	/// for example the `--raw-source` CLI option allows to
 	/// compile Spine source code given directly in the command line arguments.
 	pub fn from_string(text: String, name: String) -> SourceCode {
@@ -611,8 +611,11 @@ impl Span {
 
 	fn is_empty(&self) -> bool {
 		self.end.index_in_bytes < self.start.index_in_bytes
+
+		// TODO: What is the meaning of this? `Span`'s doc says it cannot be empty. What?
 	}
 
+	/// Part of the span that is on the left of the given pos, excluding the pos.
 	pub(crate) fn before_excluding(&self, pos: PosSimple) -> Option<Span> {
 		if pos <= self.start {
 			None
@@ -627,6 +630,7 @@ impl Span {
 		}
 	}
 
+	/// Part of the span that is on the right of the given pos, excluding the pos.
 	pub(crate) fn after_excluding(&self, pos: PosSimple) -> Option<Span> {
 		if self.end <= pos {
 			None

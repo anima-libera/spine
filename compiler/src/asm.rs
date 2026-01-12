@@ -152,27 +152,34 @@ impl AsmInstr {
 	pub(crate) fn to_machine_code(&self, layout: &Layout, instr_address: usize) -> Vec<u8> {
 		let bytes = match self {
 			AsmInstr::MovImmToReg64 { imm_src, reg_dst } => {
-				// `MOV r64, imm64` or `MOV r32, imm32` or `MOV r/m64, imm32`
-				// or (`XOR r32, r/m32` then `MOV r8, imm8`) or `XOR r32, r/m32`
+				// One of:
+				// - `MOV r64, imm64`
+				// - `MOV r32, imm32`
+				// - `MOV r/m64, imm32`
+				// - `XOR r32, r/m32` then `MOV r8, imm8`
+				// - `XOR r32, r/m32`
 
-				// Sorry, MOV has a lot of variants and here we try to use one that
-				// uses as few bytes as we can (with moderate effort),
-				// so there are a lot of cases.
+				// MOV has a lot of variants, we try to choose a variant that
+				// uses fewer bytes (with moderate effort), so there are a lot of cases.
+
+				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
+				let mut machine_code = vec![];
+
+				// This case was becoming too long, a part of it was offloaded to this helper function.
+				let config = ConfigForMovImmToReg64::get(imm_src, reg_dst);
 
 				// If the value is zero, then we just zero the register without the need for
 				// moving an immediate value (that would be zero) after.
 				let only_zero_no_mov = imm_src.is_raw_zero();
 
 				// If the value is not zero, then we use some variant of MOV that corresponds
-				// to what this config says, there is even a case where we prepend a XOR instruction
+				// to what the config says, there is even a case where we prepend a XOR instruction
 				// to zero the destination register before the MOV.
-				let config = ConfigForMovImmToReg64::get(imm_src, reg_dst);
+				let need_zero = config.zero_before_and_8 || only_zero_no_mov;
+				let need_mov = !only_zero_no_mov;
 
-				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
-				let mut machine_code = vec![];
-
-				if config.zero_before_and_8 || only_zero_no_mov {
-					// `XOR r32, r/m32` (zero extended so it zeros the whole 64 bit register)
+				if need_zero {
+					// `XOR r32, r/m32` (zero extended so it zeros the whole 64 bits register)
 					let rex_prefix = rex_prefix_byte(0, reg_dst_id_high_bit, 0, reg_dst_id_high_bit);
 					let opcode_byte = 0x33;
 					let mod_rm = mod_rm_byte(0b11, reg_dst_id_low_3_bits, reg_dst_id_low_3_bits);
@@ -183,7 +190,6 @@ impl AsmInstr {
 					machine_code.extend([opcode_byte, mod_rm]);
 				}
 
-				let need_mov = !only_zero_no_mov;
 				if need_mov {
 					let rex_prefix = rex_prefix_byte(config.rex_w, 0, 0, reg_dst_id_high_bit);
 					if config.zero_before_and_8 {
@@ -218,8 +224,13 @@ impl AsmInstr {
 				machine_code
 			},
 			AsmInstr::MovDerefReg64ToReg64 { src_size, src_sign, reg_as_ptr_src, reg_dst } => {
-				// `MOV r64, r/m64` or `MOV r32, r/m32` or `MOVSXD r64, r/m32`
-				// or `MOVSX r64, r/m8` or `MOVZX r64, r/m8`
+				// One of:
+				// - `MOV r64, r/m64`
+				// - `MOV r32, r/m32`
+				// - `MOVSXD r64, r/m32`
+				// - `MOVSX r64, r/m8`
+				// - `MOVZX r64, r/m8`
+
 				assert!(
 					*reg_as_ptr_src != Reg64::Rsp && *reg_as_ptr_src != Reg64::Rbp,
 					"The addressing forms with the ModR/M byte look a bit funky \
@@ -233,6 +244,11 @@ impl AsmInstr {
 						&& *reg_as_ptr_src != Reg64::R15,
 					"For some reason MOVing from [r12]-[r15] doesn't work for now >_<..."
 				);
+
+				// TODO: The issue with RSP,RBP,R12,R13 might be the "Special Cases of REX Encodings"
+				// (pages 618-619 of the full Intel manual pdf).
+				// This can't explain the issue with R14,R15 though.
+
 				let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
 					separate_bit_b_in_bxxx(reg_as_ptr_src.id());
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
@@ -361,12 +377,14 @@ impl AsmInstr {
 	}
 }
 
+/// Just a helper type used when generating the x86_64 machine code
+/// that moves an immediate value to a 64 bits register.
 struct ConfigForMovImmToReg64 {
 	rex_w: Bit,
 	imm_size_in_bytes: usize,
 	/// Use the sign extended 32 bits MOV variant.
 	signed_32: bool,
-	/// Zero the register before and use the 8 bits MOV variant.
+	/// Zeroify the register before MOV and use the 8 bits MOV variant.
 	zero_before_and_8: bool,
 }
 impl ConfigForMovImmToReg64 {
@@ -409,7 +427,7 @@ impl ConfigForMovImmToReg64 {
 					// and we could use `MOVSX` to then sign extend the value
 					// (this one does not have an imm variant) but that instruction is 4 bytes
 					// and we only save 3 bytes by using `MOV r/m64, imm8`.
-					// In the end it would be one byte longer so it is not wirth it.
+					// In the end it would be one byte longer so it is not worth it.
 					Self {
 						rex_w: 1,
 						imm_size_in_bytes: 4,
@@ -438,8 +456,8 @@ impl ConfigForMovImmToReg64 {
 						//
 						// Note: `MOV r8, imm8` does NOT zero extend the value, so we zero the
 						// desination register first with the good old xor reg reg.
-						// There is no need to use the 64-bit XOR variant because it zero extend
-						// the result anyway, so we can spare the REX prefix if the register
+						// There is no need to use the 64 bits XOR variant because the 32 bits variant
+						// zero extends the result anyway, so we can spare the REX prefix if the register
 						// doesn't need the REX.R bit. Dependeing on the register, the XOR
 						// takes either 2 or 3 bytes, so we actually spare either 0 or 1 byte
 						// so it is worth it.

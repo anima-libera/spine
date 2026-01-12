@@ -36,8 +36,8 @@ byte_buffer_fn_write!(write_u64, u64);
 // The binary is an array of bytes, and anything that is in the binary has an offset in the binary
 // (its index in that array of bytes).
 // When the binary gets loaded in the memory to be executed, some stuff that is written in it
-// get copied into the memory, at some address (that depends on the offset of the stuff in the
-// binary but also on weather that stuff is code or data or whatever and some other stuff).
+// gets copied into the memory, at some address (that depends on the offset of the stuff in the
+// binary but also on whether that stuff is code or data or whatever and some other stuff).
 // The offset in the binary and the address in the memory are related but are not to be confused
 // with each other. These may be refered to as the *offset* and the *address* respectively.
 
@@ -56,7 +56,9 @@ pub struct Binary {
 }
 
 pub(crate) struct Layout {
+	/// Address in memory of where the code actually starts.
 	pub(crate) code_segment_address: usize,
+	/// Address in memory of where the data actually starts.
 	pub(crate) data_segment_address: usize,
 	/// The memory address of every code label.
 	pub(crate) code_label_address_table: HashMap<String, usize>,
@@ -66,8 +68,8 @@ impl Binary {
 	pub(crate) fn new() -> Binary {
 		Binary {
 			entry_point_offset_in_code: 0,
-			code_segment_address_without_offset: 0x400000,
-			data_segment_address_without_offset: 0x600000,
+			code_segment_address_without_offset: 0x400000, // Arbitrary for now, no reason.
+			data_segment_address_without_offset: 0x600000, // Arbitrary for now, no reason.
 			asm_instrs: vec![],
 			data_bytes: vec![],
 		}

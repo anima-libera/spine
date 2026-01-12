@@ -19,6 +19,11 @@ kwps "Hello, World!\n";
 -- Can do this too!
 kwpc kwpc kwpc kwpc 'o' 'w' 'o' '\n';
 
+-- Addition!
+kwps "a + 1 is ";
+kwpc kwadd 'a' 1;
+kwpc '\n';
+
 -- Empty statement, very useful >w<
 ;
 

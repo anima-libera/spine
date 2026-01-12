@@ -1,6 +1,6 @@
 /target
 
-/compiler/test_binaries/
+/compiler/test_binaries
 
 binary
 b

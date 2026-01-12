@@ -309,12 +309,12 @@ fn parse_maybe_radix_prefix(reader: &mut Reader) -> Option<Result<RadixPrefix, R
 
 			// We read the whole radix prefix!
 			// At this point we know that we will return a `Some(Ok(_))` and not a `Some(Err(_))`,
-			// but there are still some check to be made to decide if the `radix_number`
+			// but there are still some checks to be made to decide if the `radix_number`
 			// field of the arbitrary radix prefix will be an `Ok(_)` or an `Err(_)`.
 			let span = start.span_to_prev(reader).unwrap();
 
 			// Make sure that the radix number that is between `0r{` and `}` was not missing,
-			// i.e. that we did nit just read `0r{}`.
+			// i.e. that we did not just read `0r{}`.
 			let Some(radix_number_span) = radix_number_span else {
 				let radix_prefix_span = span.clone();
 				return Some(Ok(RadixPrefix {

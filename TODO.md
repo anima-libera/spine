@@ -13,6 +13,7 @@
   - decimal representation
   - hexadecimal representation
   - radix prefix meaning and the range of valid digits authorized by it
+- string literal containing unescaped newlines warning quickfix suggestion
 
 ## Language server new features
 - run the code from IDE
