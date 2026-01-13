@@ -26,6 +26,12 @@ kwpc '\n';
 
 -- Manual syscall!
 kwdi kwdi kwsys 0 0 0 8 kwcpi kwdi "syscall\n" 1 1;
+-- last `1` is syscall number for the write syscall
+-- second last `1` is the file descriptor for stdout
+-- `kwcpi kwdi "syscall\n"` pushes just the pointer of the string (len is discarded) as a number
+-- `8` is the string length
+-- syscalls can take up to 6 parameters (not counting syscall number), the unused ones are given 0s
+-- kwsys pushes 2 values which we both discard
 
 -- Empty statement, very useful >w<
 ;
