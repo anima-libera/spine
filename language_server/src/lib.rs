@@ -327,20 +327,20 @@ impl LanguageServer for SpineLanguageServer {
 							break 'token_thingy Some(TokenThingy::Instruction(instruction));
 						}
 					}
-					if let Some(semicolon) = semicolon {
-						if semicolon.is_lsp_position(pos) {
-							break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
-						}
+					if let Some(semicolon) = semicolon
+						&& semicolon.is_lsp_position(pos)
+					{
+						break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
 					}
 				},
 				HighStatement::Block { curly_open, curly_close, .. } => {
 					if curly_open.is_lsp_position(pos) {
 						break 'token_thingy Some(TokenThingy::CurlyOpen(curly_open));
 					}
-					if let Some(curly_close) = curly_close {
-						if curly_close.is_lsp_position(pos) {
-							break 'token_thingy Some(TokenThingy::CurlyClose(curly_close));
-						}
+					if let Some(curly_close) = curly_close
+						&& curly_close.is_lsp_position(pos)
+					{
+						break 'token_thingy Some(TokenThingy::CurlyClose(curly_close));
 					}
 				},
 				HighStatement::Empty { semicolon } => {
