@@ -114,6 +114,9 @@ Some of the instructions syntax are keywords that begin with `kw`, this is the s
   - The `x`, `b` and `r` of the radix prefixes can be uppercase.
 - `'a'` `( --> a)` pushes the character `a`. It works for other characters too. See the [character escape syntax](#character-escape).
 - `"awawa"` `( --> pointer len)` pushes a pointer to the begining of static data that is the utf-8 encoding of `awawa`, and then pushes the length (of the utf-8 encoding, in bytes) of that string. It works for other strings too. See the [character escape syntax](#character-escape). Note how it works nicely with `kwps`.
+- `kwsys` `(s a1 a2 a3 a4 a5 a6 --> ret1 ret2)` runs syscall number n with the arguments a1 to a6 (the arguments must be numbers and not pointers, just cast pointers using `kwcpi`). Pushes the syscall result, and then the second result (only used by the pipe syscall on some architectures, not important).
+- `kwcpi` `(pointer --> number)` casts a pointer to a number. Effectively compiles down to nothing, it just changes the compile-time type of the top value.
+- `kwdi` `(n --> )` pops a number and discards it
 
 #### Character escape
 

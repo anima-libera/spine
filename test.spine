@@ -24,6 +24,9 @@ kwps "a + 1 is ";
 kwpc kwadd 'a' 1;
 kwpc '\n';
 
+-- Manual syscall!
+kwdi kwdi kwsys 0 0 0 8 kwcpi kwdi "syscall\n" 1 1;
+
 -- Empty statement, very useful >w<
 ;
 

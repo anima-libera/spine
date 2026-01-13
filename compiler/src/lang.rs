@@ -166,6 +166,14 @@ pub enum ExplicitKeywordWhich {
 	Add,
 	/// Terminate the process execution by calling the exit syscall, with 0 as the exit code.
 	Exit,
+	DiscardI64,
+	/// Cast a pointer to i64. Compiles into a nop.
+	CastPointerToI64,
+	/// Performs a syscall with the syscall number and the maximum number of arguments, all raw i64 types.
+	/// Pops 6 i64 arguments from last to first, then pops the syscall number.
+	/// Pushes the second return value (only used by the pipe syscall on some architectures)
+	/// then pushes the (first) return value.
+	Syscall,
 }
 
 /// Explicit keyword token, like `kwexit`.
@@ -885,6 +893,9 @@ fn parse_word(reader: &mut Reader) -> Token {
 			"kwps" => Some(ExplicitKeywordWhich::PrintStr),
 			"kwadd" => Some(ExplicitKeywordWhich::Add),
 			"kwexit" => Some(ExplicitKeywordWhich::Exit),
+			"kwdi" => Some(ExplicitKeywordWhich::DiscardI64),
+			"kwcpi" => Some(ExplicitKeywordWhich::CastPointerToI64),
+			"kwsys" => Some(ExplicitKeywordWhich::Syscall),
 			_ => None,
 		};
 		Token::ExplicitKeyword(ExplicitKeyword { span, keyword })
@@ -1138,6 +1149,18 @@ impl HighInstruction {
 					ExplicitKeywordWhich::Exit => {
 						OperandAndReturnTypes { operand_types: vec![], return_types: vec![] }
 					},
+					ExplicitKeywordWhich::DiscardI64 => OperandAndReturnTypes {
+						operand_types: vec![SpineType::I64],
+						return_types: vec![],
+					},
+					ExplicitKeywordWhich::CastPointerToI64 => OperandAndReturnTypes {
+						operand_types: vec![SpineType::DataAddr],
+						return_types: vec![SpineType::I64],
+					},
+					ExplicitKeywordWhich::Syscall => OperandAndReturnTypes {
+						operand_types: std::iter::repeat_n(SpineType::I64, 7).collect(),
+						return_types: vec![SpineType::I64, SpineType::I64],
+					},
 				}
 			},
 			HighInstruction::Identifier(_) => unimplemented!(),
@@ -1254,7 +1277,7 @@ pub fn parse(source: Arc<SourceCode>) -> HighProgram {
 	parse_program(&mut tokenizer)
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum SpineType {
 	I64,
 	DataAddr,
@@ -1284,6 +1307,10 @@ enum LowInstr {
 	PopI64AndPtrAndPrintAsString,
 	AddI64AndI64,
 	Exit,
+	Syscall,
+	/// Nop that just disappears in the codegen.
+	NopZeroBytes,
+	PopI64AndDiscard,
 }
 
 impl LowInstr {
@@ -1300,6 +1327,12 @@ impl LowInstr {
 			},
 			LowInstr::AddI64AndI64 => (vec![SpineType::I64, SpineType::I64], vec![SpineType::I64]),
 			LowInstr::Exit => (vec![], vec![]),
+			LowInstr::Syscall => (
+				std::iter::repeat_n(SpineType::I64, 7).collect(),
+				vec![SpineType::I64, SpineType::I64],
+			),
+			LowInstr::NopZeroBytes => (vec![], vec![]),
+			LowInstr::PopI64AndDiscard => (vec![SpineType::I64], vec![]),
 		}
 	}
 }
@@ -1374,6 +1407,9 @@ fn compile_statement_to_low_level_statements(
 							ExplicitKeywordWhich::PrintStr => LowInstr::PopI64AndPtrAndPrintAsString,
 							ExplicitKeywordWhich::Add => LowInstr::AddI64AndI64,
 							ExplicitKeywordWhich::Exit => LowInstr::Exit,
+							ExplicitKeywordWhich::DiscardI64 => LowInstr::PopI64AndDiscard,
+							ExplicitKeywordWhich::CastPointerToI64 => LowInstr::NopZeroBytes,
+							ExplicitKeywordWhich::Syscall => LowInstr::Syscall,
 						}
 					},
 					HighInstruction::Identifier(_) => unimplemented!(),
@@ -1486,6 +1522,31 @@ pub fn compile_to_binary(program: &LowProgram) -> Binary {
 									reg_dst: Reg64::Rdi, // Exit code, 0 means all good
 								},
 								Syscall,
+							]);
+						},
+						LowInstr::PopI64AndDiscard => {
+							bin.asm_instrs.extend([
+								// Pop
+								PopToReg64 { reg_dst: Reg64::Rax },
+							]);
+						},
+						LowInstr::NopZeroBytes => {},
+						LowInstr::Syscall => {
+							bin.asm_instrs.extend([
+								//  RDI, RSI, RDX, R10, R8, R9.
+								PopToReg64 { reg_dst: Reg64::R9 }, // Last argument
+								PopToReg64 { reg_dst: Reg64::R8 },
+								PopToReg64 { reg_dst: Reg64::R10 },
+								PopToReg64 { reg_dst: Reg64::Rdx },
+								PopToReg64 { reg_dst: Reg64::Rsi },
+								PopToReg64 { reg_dst: Reg64::Rdi }, // First argument
+								PopToReg64 { reg_dst: Reg64::Rax }, // Syscall number
+								Syscall,
+								// Syscall result
+								PushReg64 { reg_src: Reg64::Rax },
+								// Syscall second result, only used by the pipe syscall on some architectures,
+								// see linux syscall documentation.
+								PushReg64 { reg_src: Reg64::Rdx },
 							]);
 						},
 					}

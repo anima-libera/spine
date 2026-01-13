@@ -131,6 +131,10 @@ pub(crate) enum AsmInstr {
 		reg_src: Reg64,
 		reg_dst: Reg64,
 	},
+	/// Syscall number is in RAX.
+	/// Arguments are passed via registers in that order: RDI, RSI, RDX, R10, R8, R9.
+	/// Return value is in RAX,
+	/// second return value (only used by the pipe syscall on some architectures) is in RDX.
 	Syscall,
 	/// This is a fake instruction that doesn't generate any machine code.
 	/// It just helps with code generation by marking the address of the next instruction
