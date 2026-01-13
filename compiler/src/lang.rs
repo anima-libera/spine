@@ -1464,8 +1464,6 @@ pub fn compile_to_binary(program: &LowProgram) -> Binary {
 								PopToReg64 { reg_dst: Reg64::Rdx }, // String length
 								PopToReg64 { reg_dst: Reg64::Rsi }, // String address
 								Syscall,
-								// Pop
-								PopToReg64 { reg_dst: Reg64::Rsi },
 							]);
 						},
 						LowInstr::AddI64AndI64 => {
