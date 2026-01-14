@@ -55,10 +55,12 @@ export function activate(context: vscode.ExtensionContext) {
 	//statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 	statusBar.show();
 
-	client.onReady().then(() => {
-		client.onNotification("window/logMessage", (awa: string) => {
-			console.log(awa);
-		});
+	client.onDidChangeState((stateChange) => {
+		if (stateChange.newState == lsp.State.Running) {
+			client.onNotification("window/logMessage",  (awa: string) => {
+				console.log(awa);
+			});
+		}
 	});
 
 	client.start();

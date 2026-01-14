@@ -5,12 +5,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use spine_compiler::err::{CompilationError, CompilationWarning};
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer, LspService, Server};
+use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16};
+use tower_lsp_server::jsonrpc::Result;
+use tower_lsp_server::ls_types::*;
+use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
 use spine_compiler::{
-	lang::{parse, HighInstruction, HighProgram, HighStatement},
+	lang::{HighInstruction, HighProgram, HighStatement, parse},
 	src::{LspPosition, LspRange, Pos, SourceCode},
 };
 
@@ -60,7 +61,7 @@ impl SpineLanguageServer {
 }
 
 fn get_diagnostic_from_error(error: &CompilationError) -> Diagnostic {
-	let range = lsp_range_into_range(error.span().to_lsp_range());
+	let range = lsp_range_utf16_into_range(error.span().to_lsp_range_utf16());
 	Diagnostic {
 		range,
 		severity: Some(DiagnosticSeverity::ERROR),
@@ -75,7 +76,7 @@ fn get_diagnostic_from_error(error: &CompilationError) -> Diagnostic {
 }
 
 fn get_diagnostic_from_warning(warning: &CompilationWarning) -> Diagnostic {
-	let range = lsp_range_into_range(warning.span().to_lsp_range());
+	let range = lsp_range_utf16_into_range(warning.span().to_lsp_range_utf16());
 	Diagnostic {
 		range,
 		severity: Some(DiagnosticSeverity::WARNING),
@@ -89,32 +90,35 @@ fn get_diagnostic_from_warning(warning: &CompilationWarning) -> Diagnostic {
 	}
 }
 
-fn lsp_range_into_range(lsp_range: LspRange) -> Range {
+fn lsp_range_utf16_into_range(lsp_range_utf16: LspRangeUtf16) -> Range {
 	Range {
 		start: Position {
-			line: lsp_range.start.zero_based_line_number,
-			character: lsp_range.start.index_in_bytes_in_line,
+			line: lsp_range_utf16.start.zero_based_line_number,
+			character: lsp_range_utf16.start.index_in_utf16_code_units_in_line,
 		},
 		end: Position {
-			line: lsp_range.end.zero_based_line_number,
-			character: lsp_range.end.index_in_bytes_in_line,
+			line: lsp_range_utf16.end.zero_based_line_number,
+			character: lsp_range_utf16.end.index_in_utf16_code_units_in_line,
 		},
 	}
 }
 
-#[tower_lsp::async_trait]
 impl LanguageServer for SpineLanguageServer {
-	async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
-		//params.capabilities.text_document.unwrap().diagnostic.unwrap().
+	async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
 		Ok(InitializeResult {
 			server_info: Some(ServerInfo { name: "Spine language server".to_string(), version: None }),
 			capabilities: ServerCapabilities {
 				text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
-				position_encoding: Some(PositionEncodingKind::UTF8),
+				position_encoding: Some(PositionEncodingKind::UTF16),
 				hover_provider: Some(HoverProviderCapability::Simple(true)),
 				completion_provider: Some(CompletionOptions {
-					trigger_characters: Some(vec![]),
-					..Default::default()
+					resolve_provider: None,
+					trigger_characters: None,
+					all_commit_characters: None,
+					work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
+					completion_item: Some(CompletionOptionsCompletionItem {
+						label_details_support: None,
+					}),
 				}),
 				diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
 					identifier: None,
@@ -163,9 +167,9 @@ impl LanguageServer for SpineLanguageServer {
 			.source_files
 			.lock()
 			.unwrap()
-			.insert(source_file_path.clone(), source_file);
+			.insert(source_file_path.to_path_buf(), source_file);
 
-		let diagnostics = self.get_diagnostics(source_file_path);
+		let diagnostics = self.get_diagnostics(source_file_path.to_path_buf());
 		self
 			.client
 			.publish_diagnostics(params.text_document.uri, diagnostics, None)
@@ -186,9 +190,9 @@ impl LanguageServer for SpineLanguageServer {
 			.source_files
 			.lock()
 			.unwrap()
-			.insert(source_file_path.clone(), source_file);
+			.insert(source_file_path.to_path_buf(), source_file);
 
-		let diagnostics = self.get_diagnostics(source_file_path);
+		let diagnostics = self.get_diagnostics(source_file_path.to_path_buf());
 		self
 			.client
 			.publish_diagnostics(params.text_document.uri, diagnostics, None)
@@ -208,20 +212,63 @@ impl LanguageServer for SpineLanguageServer {
 	}
 
 	async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-		if params.context.is_some_and(|context| {
-			context
-				.trigger_character
-				.is_some_and(|trigger_character| trigger_character.starts_with('`'))
-		}) {
+		let source_file_path = params
+			.text_document_position
+			.text_document
+			.uri
+			.to_file_path()
+			.unwrap();
+		let Some(source_file) = self.get_source_file_data(source_file_path.to_path_buf()) else {
+			return Ok(None);
+		};
+		let pos = params.text_document_position.position;
+		let pos = LspPositionUtf16 {
+			zero_based_line_number: pos.line,
+			index_in_utf16_code_units_in_line: pos.character,
+		};
+		let Some(line_span) = source_file
+			.source
+			.line_content_span(LineNumber::from_zero_based(
+				pos.zero_based_line_number as usize,
+			))
+		else {
+			return Ok(None);
+		};
+		let pos = LspPositionUtf16::to_lsp_position(pos, line_span.as_str());
+		let before_cusrsor = &line_span.as_str()[..(pos.index_in_bytes_in_line as usize)];
+		let word_before_cursor = if before_cusrsor.ends_with(|c: char| c.is_ascii_alphanumeric()) {
+			let mut word = String::new();
+			let mut before = before_cusrsor;
+			while before.ends_with(|c: char| c.is_ascii_alphanumeric()) {
+				let index_last = before.floor_char_boundary(before.len() - 1);
+				let character = before[index_last..].chars().next().unwrap();
+				word.insert(0, character);
+				before = &before[..index_last];
+			}
+			Some(word)
+		} else {
+			None
+		};
+
+		if let Some(word) = word_before_cursor
+			&& (word == "k" || word.starts_with("kw"))
+		{
 			Ok(Some(CompletionResponse::Array(vec![
 				CompletionItem {
 					label: "kwexit".to_string(),
-					insert_text: Some("kwexit".to_string()),
-					detail: Some("( -- ) Terminate execution".to_string()),
+					label_details: Some(CompletionItemLabelDetails {
+						detail: Some(" ( --> )".to_string()),
+						description: Some("terminate execution".to_string()),
+					}),
+					insert_text: None,
+					detail: None,
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: "Explicit keyword\n\n\
+						value: "```spine\n\
+							kwexit\n\
+							```\n\
+							*Explicit keyword*\n\n\
 							Calls the `exit` syscall, which terminates the process execution."
 							.to_string(),
 					})),
@@ -229,12 +276,19 @@ impl LanguageServer for SpineLanguageServer {
 				},
 				CompletionItem {
 					label: "kwpc".to_string(),
-					insert_text: Some("kwpc".to_string()),
-					detail: Some("( char -- ) Prints character".to_string()),
+					label_details: Some(CompletionItemLabelDetails {
+						detail: Some(" (char --> )".to_string()),
+						description: Some("print character".to_string()),
+					}),
+					insert_text: None,
+					detail: None,
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: "Explicit keyword\n\n\
+						value: "```spine\n\
+							kwpc\n\
+							```\n\
+							*Explicit keyword*\n\n\
 							Calls the `write` syscall with a string made of the provided character."
 							.to_string(),
 					})),
@@ -242,12 +296,19 @@ impl LanguageServer for SpineLanguageServer {
 				},
 				CompletionItem {
 					label: "kwps".to_string(),
-					insert_text: Some("kwps".to_string()),
-					detail: Some("( ptr len -- ) Prints string".to_string()),
+					label_details: Some(CompletionItemLabelDetails {
+						detail: Some(" (ptr len --> )".to_string()),
+						description: Some("print string".to_string()),
+					}),
+					insert_text: None,
+					detail: None,
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: "Explicit keyword\n\n\
+						value: "```spine\n\
+							kwps\n\
+							```\n\
+							*Explicit keyword*\n\n\
 							Calls the `write` syscall with the given pointer and length."
 							.to_string(),
 					})),
@@ -255,13 +316,86 @@ impl LanguageServer for SpineLanguageServer {
 				},
 				CompletionItem {
 					label: "kwadd".to_string(),
-					insert_text: Some("kwadd".to_string()),
-					detail: Some("( a b -- (a+b) ) Adds two numbers".to_string()),
+					label_details: Some(CompletionItemLabelDetails {
+						detail: Some(" (a b --> sum)".to_string()),
+						description: Some("add two numbers".to_string()),
+					}),
+					insert_text: None,
+					detail: None,
 					kind: Some(CompletionItemKind::KEYWORD),
 					documentation: Some(Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: "Explicit keyword\n\n\
-							Pops number A, pops number B, pushes the result of A + B."
+						value: "```spine\n\
+							kwadd\n\
+							```\n\
+							*Explicit keyword*\n\n\
+							Pops two numbers then pushes the result of their addition."
+							.to_string(),
+					})),
+					..CompletionItem::default()
+				},
+				CompletionItem {
+					label: "kwsys".to_string(),
+					label_details: Some(CompletionItemLabelDetails {
+						detail: Some(" (s a1 a2 a3 a4 a5 a6 --> ret1 ret2)".to_string()),
+						description: Some("syscall".to_string()),
+					}),
+					insert_text: None,
+					detail: None,
+					kind: Some(CompletionItemKind::KEYWORD),
+					documentation: Some(Documentation::MarkupContent(MarkupContent {
+						kind: MarkupKind::Markdown,
+						value: "```spine\n\
+							kwsys\n\
+							```\n\
+							*Explicit keyword*\n\n\
+							Pops 6 syscall arguments (last argument is popped first, etc), \
+							then pops a syscall number, then runs the syscall, \
+							then pushes the result 2, then the result.\n\n\
+							Result 2 is meaningless and should always be discarded, \
+							expect in the very specific case of the pipe syscall (syscall number 22) \
+							on some specific architectures where it happens to return two numbers."
+							.to_string(),
+					})),
+					..CompletionItem::default()
+				},
+				CompletionItem {
+					label: "kwcpi".to_string(),
+					label_details: Some(CompletionItemLabelDetails {
+						detail: Some(" (pointer --> number)".to_string()),
+						description: Some("cast pointer to number".to_string()),
+					}),
+					insert_text: None,
+					detail: None,
+					kind: Some(CompletionItemKind::KEYWORD),
+					documentation: Some(Documentation::MarkupContent(MarkupContent {
+						kind: MarkupKind::Markdown,
+						value: "```spine\n\
+							kwcpi\n\
+							```\n\
+							*Explicit keyword*\n\n\
+							Just casts the type of the top value from address to number. \
+							Compile-time only, codegens down to nothing."
+							.to_string(),
+					})),
+					..CompletionItem::default()
+				},
+				CompletionItem {
+					label: "kwdi".to_string(),
+					label_details: Some(CompletionItemLabelDetails {
+						detail: Some(" (number --> )".to_string()),
+						description: Some("discard a number".to_string()),
+					}),
+					insert_text: None,
+					detail: None,
+					kind: Some(CompletionItemKind::KEYWORD),
+					documentation: Some(Documentation::MarkupContent(MarkupContent {
+						kind: MarkupKind::Markdown,
+						value: "```spine\n\
+							kwdi\n\
+							```\n\
+							*Explicit keyword*\n\n\
+							Pops a number and discards it."
 							.to_string(),
 					})),
 					..CompletionItem::default()
@@ -279,14 +413,23 @@ impl LanguageServer for SpineLanguageServer {
 			.uri
 			.to_file_path()
 			.unwrap();
-		let Some(source_file) = self.get_source_file_data(source_file_path) else {
+		let Some(source_file) = self.get_source_file_data(source_file_path.to_path_buf()) else {
 			return Ok(None);
 		};
 		let pos = params.text_document_position_params.position;
-		let pos = LspPosition {
+		let pos = LspPositionUtf16 {
 			zero_based_line_number: pos.line,
-			index_in_bytes_in_line: pos.character,
+			index_in_utf16_code_units_in_line: pos.character,
 		};
+		let Some(line_span) = source_file
+			.source
+			.line_content_span(LineNumber::from_zero_based(
+				pos.zero_based_line_number as usize,
+			))
+		else {
+			return Ok(None);
+		};
+		let pos = LspPositionUtf16::to_lsp_position(pos, line_span.as_str());
 		fn statement_search(
 			statements: &[HighStatement],
 			pos: LspPosition,
@@ -368,9 +511,9 @@ impl LanguageServer for SpineLanguageServer {
 					"{}\n\n{}",
 					match statement {
 						HighStatement::Empty { .. } => "Empty statement".to_string(),
-						HighStatement::Code { ref instructions, .. } =>
+						HighStatement::Code { instructions, .. } =>
 							format!("Code statement of {} insructions", instructions.len()),
-						HighStatement::Block { ref statements, .. } =>
+						HighStatement::Block { statements, .. } =>
 							format!("Block statement of {} statements", statements.len()),
 						HighStatement::SomeUnexpectedCharacters { .. } => "Error".to_string(),
 						HighStatement::UnexpectedClosingCurly { .. } => "Error".to_string(),
@@ -413,14 +556,14 @@ impl LanguageServer for SpineLanguageServer {
 				(instruction.span().clone(), documentation)
 			},
 		};
-		let range = span.to_lsp_range();
+		let range_utf16 = span.to_lsp_range_utf16();
 		let bit_of_code = span.as_str();
 		Ok(Some(Hover {
 			contents: HoverContents::Markup(MarkupContent {
 				kind: MarkupKind::Markdown,
 				value: format!("```spine\n{bit_of_code}\n```\n---\n{documentation}"),
 			}),
-			range: Some(lsp_range_into_range(range)),
+			range: Some(lsp_range_utf16_into_range(range_utf16)),
 		}))
 	}
 
@@ -429,7 +572,7 @@ impl LanguageServer for SpineLanguageServer {
 		params: DocumentDiagnosticParams,
 	) -> Result<DocumentDiagnosticReportResult> {
 		let source_file_path = params.text_document.uri.to_file_path().unwrap();
-		let diagnostics = self.get_diagnostics(source_file_path);
+		let diagnostics = self.get_diagnostics(source_file_path.to_path_buf());
 
 		Ok(DocumentDiagnosticReportResult::Report(
 			DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
@@ -444,7 +587,7 @@ impl LanguageServer for SpineLanguageServer {
 
 	async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
 		let source_file_path = params.text_document.uri.to_file_path().unwrap();
-		let source_file = self.get_source_file_data(source_file_path);
+		let source_file = self.get_source_file_data(source_file_path.to_path_buf());
 
 		let mut actions = vec![];
 		let (errors, warnings) = source_file.unwrap().high_program.get_errors_and_warnings();
@@ -460,7 +603,7 @@ impl LanguageServer for SpineLanguageServer {
 							map.insert(
 								params.text_document.uri.clone(),
 								vec![TextEdit {
-									range: lsp_range_into_range(warning.span().to_lsp_range()),
+									range: lsp_range_utf16_into_range(warning.span().to_lsp_range_utf16()),
 									new_text: fix_by_rewrite.new_code,
 								}],
 							);

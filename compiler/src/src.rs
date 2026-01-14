@@ -45,7 +45,7 @@ impl SourceCode {
 
 	/// Span of the line of the given zero-based line number,
 	/// excluding the terminating newline character (if any).
-	pub(crate) fn line_content_span(self: &Arc<Self>, line_number: LineNumber) -> Option<Span> {
+	pub fn line_content_span(self: &Arc<Self>, line_number: LineNumber) -> Option<Span> {
 		let line_start = self.line_starts.table.get(line_number.zero_based())?;
 		let line_start = PosSimple {
 			index_in_bytes: line_start.index_in_bytes,
@@ -72,6 +72,10 @@ pub struct LineNumber {
 }
 
 impl LineNumber {
+	pub fn from_zero_based(zero_based_line_number: usize) -> LineNumber {
+		LineNumber { zero_based_line_number }
+	}
+
 	/// Get the line number as a zero-based number
 	/// (so a line number that assumes the first line is 0).
 	///
@@ -274,13 +278,15 @@ impl Reader {
 	/// starts by exactly the given `string_to_match`.
 	pub(crate) fn ahead_is(&self, string_to_match: &str) -> bool {
 		let mut chars_to_match = string_to_match.chars();
-		self.look_ahead(|mut reader| loop {
-			if let Some(char_to_match) = chars_to_match.next() {
-				if reader.pop() != Some(char_to_match) {
-					break false;
+		self.look_ahead(|mut reader| {
+			loop {
+				if let Some(char_to_match) = chars_to_match.next() {
+					if reader.pop() != Some(char_to_match) {
+						break false;
+					}
+				} else {
+					break true;
 				}
-			} else {
-				break true;
 			}
 		})
 	}
@@ -288,13 +294,15 @@ impl Reader {
 	/// Iff `ahead_is(string_to_match)` then skips all that (and returns `true`).
 	pub(crate) fn skip_if_ahead_is(&mut self, string_to_match: &str) -> bool {
 		let mut chars_to_match = string_to_match.chars();
-		let reader_state_after_match = self.look_ahead(|mut reader| loop {
-			if let Some(char_to_match) = chars_to_match.next() {
-				if reader.pop() != Some(char_to_match) {
-					break None;
+		let reader_state_after_match = self.look_ahead(|mut reader| {
+			loop {
+				if let Some(char_to_match) = chars_to_match.next() {
+					if reader.pop() != Some(char_to_match) {
+						break None;
+					}
+				} else {
+					break Some(reader);
 				}
-			} else {
-				break Some(reader);
 			}
 		});
 		if let Some(reader_state_after_match) = reader_state_after_match {
@@ -557,7 +565,7 @@ impl Debug for Span {
 }
 
 impl Span {
-	pub(crate) fn source(&self) -> &Arc<SourceCode> {
+	pub fn source(&self) -> &Arc<SourceCode> {
 		&self.source
 	}
 
@@ -678,11 +686,78 @@ impl Iterator for SpanPositions {
 	}
 }
 
+/// VSCode really likes utf-16, at the time of writing its LSP client-side thingy doesn't support
+/// `PositionEncodingKind::UTF8` (it used to but it stopped). Let's go for the utf-16 thingy
+/// (for which the support is mendatory as per LSP documentation) to make sure the extension
+/// works now and will never break again for this stupid reason.
+///
+/// Use [`LspPositionUtf16::to_lsp_position`] and [`LspPosition::to_lsp_position_utf16`]
+/// to convert between capitalist utf-16 (bad) and communist utf-8 (epic).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct LspPositionUtf16 {
+	pub zero_based_line_number: u32,
+	/// Zero-based, index in utf-16 code units in the utf-16 representation of the line of code.
+	pub index_in_utf16_code_units_in_line: u32,
+}
+
+impl LspPositionUtf16 {
+	pub fn to_lsp_position(self, line_str: &str) -> LspPosition {
+		let target_utf16_index = self.index_in_utf16_code_units_in_line as usize;
+		let mut line_chars = line_str.chars();
+		let mut head_utf16_index = 0;
+		let mut head_utf8_index = 0;
+		loop {
+			if head_utf16_index == target_utf16_index {
+				return LspPosition {
+					zero_based_line_number: self.zero_based_line_number,
+					index_in_bytes_in_line: head_utf8_index as u32,
+				};
+			}
+			let Some(character) = line_chars.next() else {
+				break;
+			};
+			head_utf16_index += character.len_utf16();
+			head_utf8_index += character.len_utf8();
+		}
+		panic!("to_lsp_position couldn't convert utf-16 index to utf-8 index")
+	}
+}
+
+impl LspPosition {
+	pub fn to_lsp_position_utf16(self, line_str: &str) -> LspPositionUtf16 {
+		let target_utf8_index = self.index_in_bytes_in_line as usize;
+		let mut line_chars = line_str.chars();
+		let mut head_utf16_index = 0;
+		let mut head_utf8_index = 0;
+		loop {
+			if head_utf8_index == target_utf8_index {
+				return LspPositionUtf16 {
+					zero_based_line_number: self.zero_based_line_number,
+					index_in_utf16_code_units_in_line: head_utf16_index as u32,
+				};
+			}
+			let Some(character) = line_chars.next() else {
+				break;
+			};
+			head_utf16_index += character.len_utf16();
+			head_utf8_index += character.len_utf8();
+		}
+		panic!("to_lsp_position couldn't convert utf-8 index to utf-16 index")
+	}
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct LspPosition {
 	pub zero_based_line_number: u32,
 	/// Zero-based, index in the bytes of the line.
 	pub index_in_bytes_in_line: u32,
+}
+
+pub struct LspRangeUtf16 {
+	/// Included.
+	pub start: LspPositionUtf16,
+	/// Excluded! Beware.
+	pub end: LspPositionUtf16,
 }
 
 pub struct LspRange {
@@ -739,6 +814,20 @@ impl Span {
 				.end
 				.with_source(Arc::clone(&self.source))
 				.to_lsp_position_next_in_line(),
+		}
+	}
+
+	pub fn to_lsp_range_utf16(&self) -> LspRangeUtf16 {
+		let lsp_range = self.to_lsp_range();
+
+		let line_start_span = self.source.line_content_span(self.line_range().0).unwrap();
+		let line_end_span = self.source.line_content_span(self.line_range().1).unwrap();
+
+		LspRangeUtf16 {
+			start: lsp_range
+				.start
+				.to_lsp_position_utf16(line_start_span.as_str()),
+			end: lsp_range.end.to_lsp_position_utf16(line_end_span.as_str()),
 		}
 	}
 }
