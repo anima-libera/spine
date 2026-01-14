@@ -1,3 +1,4 @@
+import { error } from "console";
 import * as vscode from "vscode";
 import * as lsp from "vscode-languageclient/node";
 
@@ -13,7 +14,20 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 	context.subscriptions.push(fardCommand);
 
-	const spineExecutablePath = process.env.HOME + "/.cargo/bin/spine"
+	var spineExecutablePath: string | undefined =
+		vscode.workspace.getConfiguration("spine-lang").get("languageServerPath");
+	if (spineExecutablePath == undefined) {
+		spineExecutablePath = process.env.HOME + "/.cargo/bin/spine";
+	}
+	if (spineExecutablePath.includes("~")) {
+		const home = process.env.HOME;
+		if (home == undefined) {
+			console.error("no HOME env variable to use to replace `~` in language server path `%s`", spineExecutablePath);
+			return;
+		}
+		spineExecutablePath = spineExecutablePath.replaceAll("~", home);
+	}
+
 	const runLanguageServer: lsp.Executable = {
 		command: spineExecutablePath,
 		args: ["--lsp"],

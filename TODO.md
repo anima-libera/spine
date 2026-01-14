@@ -22,7 +22,6 @@
 - semantic tokens
 - display tokens (like rust-analyzer allows to do)
 - display AST (like rust-analyzer allows to do)
-- path of the spine binary as a setting
 - fix errors being displayed twice on hover
 - use `TextDocumentSyncKind::INCREMENTAL` instead of `TextDocumentSyncKind::FULL`
 - display same documentation when hovering a keyword than when looking at it as a completion item

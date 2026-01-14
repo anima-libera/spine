@@ -51,7 +51,18 @@
 				"scopeName": "source.spine",
 				"path": "spine.tmGrammar.json"
 			}
-		]
+		],
+		"configuration": {
+			"title": "Spine",
+			"properties": {
+				"spine-lang.languageServerPath": {
+					"type": "string",
+					"default": "~/.cargo/bin/spine",
+					"order": 0,
+					"description": "The path to the Spine executable that will be used to run the language server"
+				}
+			}
+		}
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
