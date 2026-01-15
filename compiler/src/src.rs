@@ -2,7 +2,7 @@
 //! from the source code, managing source code text, referring to characters
 //! and spans of characters in the source code.
 
-use std::{cmp::Ordering, fmt::Debug, path::Path, sync::Arc};
+use std::{cmp::Ordering, fmt::Debug, ops::Sub, path::Path, sync::Arc};
 
 /// One pice of source code, for example one source file.
 ///
@@ -108,6 +108,13 @@ impl LineNumber {
 				.zero_based_line_number
 				.max(other.zero_based_line_number),
 		}
+	}
+}
+
+impl Sub for LineNumber {
+	type Output = usize;
+	fn sub(self, rhs: Self) -> Self::Output {
+		self.zero_based() - rhs.zero_based()
 	}
 }
 
@@ -703,7 +710,7 @@ pub struct LspPositionUtf16 {
 impl LspPositionUtf16 {
 	pub fn to_lsp_position(self, line_str: &str) -> LspPosition {
 		let target_utf16_index = self.index_in_utf16_code_units_in_line as usize;
-		let mut line_chars = line_str.chars();
+		let mut line_chars = line_str.chars().chain(std::iter::once('\n'));
 		let mut head_utf16_index = 0;
 		let mut head_utf8_index = 0;
 		loop {
@@ -719,14 +726,17 @@ impl LspPositionUtf16 {
 			head_utf16_index += character.len_utf16();
 			head_utf8_index += character.len_utf8();
 		}
-		panic!("to_lsp_position couldn't convert utf-16 index to utf-8 index")
+		panic!(
+			"to_lsp_position couldn't convert utf-16 index to utf-8 index, at line {} (1-based)",
+			self.zero_based_line_number + 1
+		)
 	}
 }
 
 impl LspPosition {
 	pub fn to_lsp_position_utf16(self, line_str: &str) -> LspPositionUtf16 {
 		let target_utf8_index = self.index_in_bytes_in_line as usize;
-		let mut line_chars = line_str.chars();
+		let mut line_chars = line_str.chars().chain(std::iter::once('\n'));
 		let mut head_utf16_index = 0;
 		let mut head_utf8_index = 0;
 		loop {
@@ -742,7 +752,10 @@ impl LspPosition {
 			head_utf16_index += character.len_utf16();
 			head_utf8_index += character.len_utf8();
 		}
-		panic!("to_lsp_position couldn't convert utf-8 index to utf-16 index")
+		panic!(
+			"to_lsp_position couldn't convert utf-8 index to utf-16 index, at line {} (1-based)",
+			self.zero_based_line_number + 1
+		)
 	}
 }
 
@@ -791,6 +804,7 @@ impl Pos {
 }
 
 impl Span {
+	/// End is included.
 	pub fn line_range(&self) -> (LineNumber, LineNumber) {
 		(self.start.line_number, self.end.line_number)
 	}

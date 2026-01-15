@@ -40,7 +40,8 @@ kwdi kwdi kwsys 0 0 0 8 kwcpi kwdi "syscall\n" 1 1;
 
 --{ Block comment
     that can span multiple lines
-    and that can have nested blocks {{{}}} }
+    and that can have nested blocks {{{}}}
+    so it only ends here -> }
 
 -- Terminates process execution. Segfault probably occurs if it is missing.
 kwexit;

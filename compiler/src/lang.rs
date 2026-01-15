@@ -190,11 +190,11 @@ pub struct Identifier {
 }
 
 #[derive(Debug)]
-struct Comment {
-	span: Span,
-	is_block: bool,
-	is_doc: bool,
-	is_missing_expected_closing_curly: bool,
+pub struct Comment {
+	pub span: Span,
+	pub is_block: bool,
+	pub is_doc: bool,
+	pub is_missing_expected_closing_curly: bool,
 }
 
 #[derive(Debug)]
@@ -589,7 +589,7 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 									.span_to(&open_curly_pos)
 									.unwrap(),
 							},
-						))
+						));
 					},
 				}
 			}
@@ -667,7 +667,7 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 									.span_to(&open_curly_pos)
 									.unwrap(),
 							},
-						))
+						));
 					},
 				}
 			}
@@ -713,7 +713,7 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 					backslash_pos: start,
 					invalid_character_pos: reader.prev_pos().unwrap(),
 				},
-			))
+			));
 		},
 	};
 	let span = start.span_to_prev(reader).unwrap();
@@ -1275,6 +1275,21 @@ pub fn parse(source: Arc<SourceCode>) -> HighProgram {
 	let reader = Reader::new(Arc::clone(&source));
 	let mut tokenizer = Tokenizer::new(reader);
 	parse_program(&mut tokenizer)
+}
+
+pub fn list_comments(source: Arc<SourceCode>) -> Vec<Comment> {
+	let mut reader = Reader::new(Arc::clone(&source));
+	let mut comments = vec![];
+	while let Some(token) = pop_token_from_reader(&mut reader) {
+		if let Token::WhitespaceAndComments(WhitespaceAndComments {
+			comments: comments_from_token,
+			..
+		}) = token
+		{
+			comments.extend(comments_from_token.into_iter());
+		}
+	}
+	comments
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -19,7 +19,7 @@
 
 ## Language server new features
 - build and run the code from the IDE
-- semantic tokens
+- semantic tokens for all kinds of tokens
 - display tokens (like rust-analyzer allows to do)
 - display AST (like rust-analyzer allows to do)
 - fix errors being displayed twice on hover

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use spine_compiler::err::{CompilationError, CompilationWarning};
+use spine_compiler::lang::{Comment, list_comments};
 use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16};
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
@@ -18,6 +19,7 @@ use spine_compiler::{
 struct SourceFileData {
 	source: Arc<SourceCode>,
 	high_program: HighProgram,
+	comments: Vec<Comment>,
 }
 
 struct SpineLanguageServer {
@@ -33,7 +35,8 @@ impl SpineLanguageServer {
 		} else {
 			let source = Arc::new(SourceCode::from_file(&source_file_path)?);
 			let high_program = parse(Arc::clone(&source));
-			let source_file = Arc::new(SourceFileData { source, high_program });
+			let comments = list_comments(Arc::clone(&source));
+			let source_file = Arc::new(SourceFileData { source, high_program, comments });
 			source_file_lock
 				.as_mut()
 				.unwrap()
@@ -103,6 +106,11 @@ fn lsp_range_utf16_into_range(lsp_range_utf16: LspRangeUtf16) -> Range {
 	}
 }
 
+#[derive(Clone, Copy)]
+enum TokenType {
+	Comment = 0,
+}
+
 impl LanguageServer for SpineLanguageServer {
 	async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
 		Ok(InitializeResult {
@@ -131,6 +139,17 @@ impl LanguageServer for SpineLanguageServer {
 					work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
 					resolve_provider: None,
 				})),
+				semantic_tokens_provider: Some(
+					SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
+						work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
+						legend: SemanticTokensLegend {
+							token_types: vec![SemanticTokenType::new("comment")],
+							token_modifiers: vec![],
+						},
+						range: None,
+						full: Some(SemanticTokensFullOptions::Bool(true)),
+					}),
+				),
 				..Default::default()
 			},
 		})
@@ -162,7 +181,8 @@ impl LanguageServer for SpineLanguageServer {
 		};
 		let source = Arc::new(source);
 		let high_program = parse(Arc::clone(&source));
-		let source_file = Arc::new(SourceFileData { source, high_program });
+		let comments = list_comments(Arc::clone(&source));
+		let source_file = Arc::new(SourceFileData { source, high_program, comments });
 		self
 			.source_files
 			.lock()
@@ -185,7 +205,8 @@ impl LanguageServer for SpineLanguageServer {
 		let name = source_file_path.to_str().unwrap().to_string();
 		let source = Arc::new(SourceCode::from_string(source_text, name));
 		let high_program = parse(Arc::clone(&source));
-		let source_file = Arc::new(SourceFileData { source, high_program });
+		let comments = list_comments(Arc::clone(&source));
+		let source_file = Arc::new(SourceFileData { source, high_program, comments });
 		self
 			.source_files
 			.lock()
@@ -565,6 +586,79 @@ impl LanguageServer for SpineLanguageServer {
 			}),
 			range: Some(lsp_range_utf16_into_range(range_utf16)),
 		}))
+	}
+
+	async fn semantic_tokens_full(
+		&self,
+		params: SemanticTokensParams,
+	) -> Result<Option<SemanticTokensResult>> {
+		let source_file_path = params.text_document.uri.to_file_path().unwrap();
+		let source_file = self
+			.get_source_file_data(source_file_path.to_path_buf())
+			.unwrap();
+		let mut semantic_tokens = vec![];
+
+		// LSP wants relative positions (both for lines and offsets in lines)
+		// so we keep the absolute position of the last token to turn new absolute positions
+		// into relative positions.
+		let mut last_token_line = None;
+		let mut last_token_index_utf16 = None;
+
+		for comment in &source_file.comments {
+			let range_utf16 = comment.span.to_lsp_range_utf16();
+
+			// LSP spec says that multi-line tokens are an optional client capability,
+			// so the client might not support them (or support might be dropped one day).
+			// Just to be safe, we cut multi-line tokens into non-multi-line tokens.
+			let (line_start, line_end) = comment.span.line_range();
+			for zero_based_line_number in line_start.zero_based()..=line_end.zero_based() {
+				let line = LineNumber::from_zero_based(zero_based_line_number);
+
+				let delta_line = last_token_line
+					.map_or(line.zero_based(), |last_line: LineNumber| line - last_line)
+					as u32;
+
+				let start_in_current_line = if line == line_start {
+					range_utf16.start.index_in_utf16_code_units_in_line
+				} else {
+					// We are NOT at the first line of the current multi-line token,
+					// so this piece of token starts at the beginning of the current line.
+					0
+				};
+				let delta_start = if last_token_line == Some(line) {
+					start_in_current_line - last_token_index_utf16.unwrap()
+				} else {
+					start_in_current_line
+				};
+
+				let length = if line == line_end {
+					range_utf16.end.index_in_utf16_code_units_in_line - start_in_current_line
+				} else {
+					let line_length_utf16 = source_file
+						.source
+						.line_content_span(line)
+						.unwrap()
+						.as_str()
+						.encode_utf16()
+						.count() as u32;
+					line_length_utf16 - start_in_current_line
+				};
+				semantic_tokens.push(SemanticToken {
+					delta_line,
+					delta_start,
+					length,
+					token_type: TokenType::Comment as u32,
+					token_modifiers_bitset: 0,
+				});
+				last_token_line = Some(line);
+				last_token_index_utf16 = Some(start_in_current_line);
+			}
+		}
+
+		Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+			result_id: None,
+			data: semantic_tokens,
+		})))
 	}
 
 	async fn diagnostic(
