@@ -30,6 +30,15 @@
 					"light": "./icons/spine.png",
 					"dark": "./icons/spine.png"
 				}
+			},
+			{
+				"command": "spine-lang.restartLanguageServer",
+				"title": "Restart Language Server",
+				"category": "Spine",
+				"icon": {
+					"light": "./icons/spine.png",
+					"dark": "./icons/spine.png"
+				}
 			}
 		],
 		"languages": [
@@ -59,7 +68,7 @@
 					"type": "string",
 					"default": "~/.cargo/bin/spine",
 					"order": 0,
-					"description": "The path to the Spine executable that will be used to run the language server"
+					"description": "The path to the Spine executable that will be used to run the language server."
 				}
 			}
 		}

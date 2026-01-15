@@ -2,30 +2,36 @@ import { error } from "console";
 import * as vscode from "vscode";
 import * as lsp from "vscode-languageclient/node";
 
-let client: lsp.LanguageClient;
+let client: lsp.LanguageClient | null = null;
 
-export function activate(context: vscode.ExtensionContext) {
-	console.log("uwu");
-	console.log("owo");
-
-	const fardCommand = vscode.commands.registerCommand("spine-lang.fard", () => {
-		vscode.window.showInformationMessage("Jaaj");
-		vscode.window.showWarningMessage("Jaaj !!!!!!!!!!");
-	});
-	context.subscriptions.push(fardCommand);
-
+function getSpineExecutablePath(): string | null {
 	var spineExecutablePath: string | undefined =
 		vscode.workspace.getConfiguration("spine-lang").get("languageServerPath");
 	if (spineExecutablePath == undefined) {
-		spineExecutablePath = process.env.HOME + "/.cargo/bin/spine";
+		spineExecutablePath = `${process.env.HOME}/.cargo/bin/spine`;
 	}
 	if (spineExecutablePath.includes("~")) {
 		const home = process.env.HOME;
 		if (home == undefined) {
-			console.error("no HOME env variable to use to replace `~` in language server path `%s`", spineExecutablePath);
-			return;
+			const errorMessage = `no HOME env variable to use to replace \`~\` in language server path \`${spineExecutablePath}\``;
+			vscode.window.showErrorMessage(errorMessage);
+			console.error(errorMessage);
+			return null;
 		}
 		spineExecutablePath = spineExecutablePath.replaceAll("~", home);
+	}
+	return spineExecutablePath;
+}
+
+function startOrRestartLanguageServer() {
+	if (client != null) {
+		client.stop();
+		client = null;
+	}
+
+	const spineExecutablePath = getSpineExecutablePath();
+	if (spineExecutablePath == null) {
+		return;
 	}
 
 	const runLanguageServer: lsp.Executable = {
@@ -53,6 +59,31 @@ export function activate(context: vscode.ExtensionContext) {
 		clientOptions
 	);
 
+	client.onDidChangeState((stateChange) => {
+		if (stateChange.newState == lsp.State.Running && client != null) {
+			client.onNotification("window/logMessage",  (awa: string) => {
+				console.log(awa);
+			});
+		}
+	});
+
+	client.start();
+}
+
+export function activate(context: vscode.ExtensionContext) {
+	console.log("uwu");
+	console.log("owo");
+
+	context.subscriptions.push(vscode.commands.registerCommand("spine-lang.fard", () => {
+		vscode.window.showInformationMessage("Jaaj");
+		vscode.window.showWarningMessage("Jaaj !!!!!!!!!!");
+	}));
+	context.subscriptions.push(vscode.commands.registerCommand("spine-lang.restartLanguageServer", () => {
+		startOrRestartLanguageServer();
+	}));
+
+	startOrRestartLanguageServer();
+
 	const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1);
 	statusBar.text = "Spine !!!!!";
 	statusBar.tooltip = new vscode.MarkdownString(
@@ -68,16 +99,6 @@ export function activate(context: vscode.ExtensionContext) {
 	statusBar.command = "spine-lang.fard";
 	//statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 	statusBar.show();
-
-	client.onDidChangeState((stateChange) => {
-		if (stateChange.newState == lsp.State.Running) {
-			client.onNotification("window/logMessage",  (awa: string) => {
-				console.log(awa);
-			});
-		}
-	});
-
-	client.start();
 }
 
 export function deactivate(): Thenable<void> | undefined {

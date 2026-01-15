@@ -26,6 +26,7 @@
 - use `TextDocumentSyncKind::INCREMENTAL` instead of `TextDocumentSyncKind::FULL`
 - display same documentation when hovering a keyword than when looking at it as a completion item
 - command and button to restart the language server
+- do the [bundling thing](https://code.visualstudio.com/api/working-with-extensions/bundling-extension)
 
 ## CLI new features
 - pass arguments to the binary when using `--run`
