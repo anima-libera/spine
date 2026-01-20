@@ -213,12 +213,6 @@ impl LanguageServer for SpineLanguageServer {
 			.unwrap()
 			.insert(source_file_path.to_path_buf(), source_file);
 
-		let diagnostics = self.get_diagnostics(source_file_path.to_path_buf());
-		self
-			.client
-			.publish_diagnostics(params.text_document.uri, diagnostics, None)
-			.await;
-
 		self
 			.client
 			.log_message(MessageType::INFO, "did change")
