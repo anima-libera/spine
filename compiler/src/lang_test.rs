@@ -107,3 +107,19 @@ fn print_char_from_escape_any_decimal_digits() {
 	let expected_output = "a\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
+
+#[test]
+fn print_string_with_manual_syscall() {
+	let name = "print_string_with_manual_syscall";
+	let code = "kwdi kwdi kwsys 0 0 0 6 kwcpi kwdi \"hello\\n\" 1 1;";
+	let expected_output = "hello\n";
+	assert_eq!(compile_and_outputs(name, code), expected_output);
+}
+
+#[test]
+fn addition() {
+	let name = "addition";
+	let code = "kwpc kwadd 'a' 1; kwpc '\\n'; kwexit;";
+	let expected_output = "b\n";
+	assert_eq!(compile_and_outputs(name, code), expected_output);
+}
