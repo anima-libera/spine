@@ -92,7 +92,9 @@ export function activate(context: vscode.ExtensionContext) {
 		"[way?](command:spine-lang.fard \"Does something truly amazing\")\n" +
 		"\n---\n\n" +
 		"- UwU\n" +
-		"- OwO $(terminal) $(terminal) $(terminal) $(terminal) $(terminal) $(loading~spin)"
+		"- OwO $(terminal) $(terminal) $(terminal) $(terminal) $(terminal) $(loading~spin)" +
+		"\n---\n\n" +
+		"[Restart Language Server](command:spine-lang.restartLanguageServer \"bwa\")\n"
 	);
 	statusBar.tooltip.isTrusted = true;
 	statusBar.tooltip.supportThemeIcons = true;
