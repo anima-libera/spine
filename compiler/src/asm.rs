@@ -1,9 +1,9 @@
 use crate::{elf::Layout, imm::Imm};
 
-type U4 = u8;
-type U3 = u8;
-type U2 = u8;
-type Bit = u8;
+pub(crate) type U4 = u8;
+pub(crate) type U3 = u8;
+pub(crate) type U2 = u8;
+pub(crate) type Bit = u8;
 
 fn set_byte_bit(byte: &mut u8, bit_index: usize, bit_value: Bit) {
 	assert!(bit_value <= 1);
@@ -55,7 +55,7 @@ fn mod_rm_byte(mod_: U2, reg: U3, rm: U3) -> u8 {
 	mod_ << 6 | reg << 3 | rm
 }
 
-fn separate_bit_b_in_bxxx(four_bit_value: U4) -> (Bit, U3) {
+pub(crate) fn separate_bit_b_in_bxxx(four_bit_value: U4) -> (Bit, U3) {
 	assert!(four_bit_value <= 0b1111);
 	let high_bit = four_bit_value >> 3;
 	let low_3_bits = four_bit_value & 0b00000111;
@@ -75,13 +75,29 @@ impl Reg64 {
 	/// When the high bit is 1 (for R8 to R15) it has to be set in the appropriate field in
 	/// the REX prefix (because the places these numbers usually go are only 3-bit wide).
 	#[rustfmt::skip]
-	fn id(self) -> U4 {
+	pub(crate) fn id(self) -> U4 {
 		match self {
 			Reg64::Rax => 0,  Reg64::Rcx => 1,  Reg64::Rdx => 2,  Reg64::Rbx => 3,
 			Reg64::Rsp => 4,  Reg64::Rbp => 5,  Reg64::Rsi => 6,  Reg64::Rdi => 7,
 			Reg64::R8  => 8,  Reg64::R9  => 9,  Reg64::R10 => 10, Reg64::R11 => 11,
 			Reg64::R12 => 12, Reg64::R13 => 13, Reg64::R14 => 14, Reg64::R15 => 15,
 		}
+	}
+
+	#[rustfmt::skip]
+	pub(crate) fn name(self) -> &'static str {
+		match self {
+			Reg64::Rax => "rax", Reg64::Rcx => "rcx", Reg64::Rdx => "rdx", Reg64::Rbx => "rbx",
+			Reg64::Rsp => "rsp", Reg64::Rbp => "rbp", Reg64::Rsi => "rsi", Reg64::Rdi => "rdi",
+			Reg64::R8  => "r8",  Reg64::R9  => "r9",  Reg64::R10 => "r10", Reg64::R11 => "r11",
+			Reg64::R12 => "r12", Reg64::R13 => "r13", Reg64::R14 => "r14", Reg64::R15 => "r15",
+		}
+	}
+}
+
+impl std::fmt::Display for Reg64 {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.name())
 	}
 }
 

@@ -11,3 +11,4 @@ pub mod err;
 pub mod imm;
 pub mod lang;
 pub mod src;
+pub mod x86_64;

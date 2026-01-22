@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use crate::asm::{AsmInstr, BaseSign, BaseSize, Reg64};
-use crate::elf::{chmod_x, Binary};
-use crate::imm::{Imm, Imm32, Imm64, Imm8, Raw32, Raw64, Raw8};
+use crate::elf::{Binary, chmod_x};
+use crate::imm::{Imm, Imm8, Imm32, Imm64, Raw8, Raw32, Raw64};
 
 #[test]
 fn some_assembly_instructions() {
