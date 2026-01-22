@@ -292,8 +292,8 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 		Reg64::R11,
 		//Reg64::R12,
 		//Reg64::R13,
-		//Reg64::R14,
-		//Reg64::R15,
+		Reg64::R14,
+		Reg64::R15,
 	];
 
 	use AsmInstr::*;

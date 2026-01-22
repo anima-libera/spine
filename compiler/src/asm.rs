@@ -242,16 +242,12 @@ impl AsmInstr {
 					to an other register..."
 				);
 				assert!(
-					*reg_as_ptr_src != Reg64::R12
-						&& *reg_as_ptr_src != Reg64::R13
-						&& *reg_as_ptr_src != Reg64::R14
-						&& *reg_as_ptr_src != Reg64::R15,
-					"For some reason MOVing from [r12]-[r15] doesn't work for now >_<..."
+					*reg_as_ptr_src != Reg64::R12 && *reg_as_ptr_src != Reg64::R13,
+					"For some reason MOVing from [r12] [r13] doesn't work for now >_<..."
 				);
 
 				// TODO: The issue with RSP,RBP,R12,R13 might be the "Special Cases of REX Encodings"
 				// (pages 618-619 of the full Intel manual pdf).
-				// This can't explain the issue with R14,R15 though.
 
 				let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
 					separate_bit_b_in_bxxx(reg_as_ptr_src.id());
