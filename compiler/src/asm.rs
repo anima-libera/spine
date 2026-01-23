@@ -1,13 +1,52 @@
-use crate::{elf::Layout, imm::Imm};
+use crate::{
+	asm::small_uints::{Bit, U2, U3, U4},
+	elf::Layout,
+	imm::Imm,
+};
 
-pub(crate) type U4 = u8;
-pub(crate) type U3 = u8;
-pub(crate) type U2 = u8;
-pub(crate) type Bit = u8;
+pub(crate) mod small_uints {
+	//! Small unsigned integers on a few bits, like `U3` or `Bit`.
+	//!
+	//! These are not just aliases of `u8` because I want type safety on these,
+	//! the backend cooks binary soup with these a lot and I want all the checks I can get.
+
+	macro_rules! def {
+		($type_name:ident, $size_in_bits:literal) => {
+			#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+			pub(crate) struct $type_name(u8);
+
+			impl $type_name {
+				pub(crate) const fn new(value: u8) -> Self {
+					assert!(value <= (1 << $size_in_bits));
+					Self(value)
+				}
+
+				pub(crate) fn as_u8(self) -> u8 {
+					self.0
+				}
+			}
+
+			impl std::fmt::Display for $type_name {
+				fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+					write!(f, "{}", self.0)
+				}
+			}
+		};
+	}
+
+	def! {Bit, 1}
+	def! {U2, 2}
+	def! {U3, 3}
+	def! {U4, 4}
+
+	impl Bit {
+		pub(crate) const _0: Bit = Bit::new(0);
+		pub(crate) const _1: Bit = Bit::new(1);
+	}
+}
 
 fn set_byte_bit(byte: &mut u8, bit_index: usize, bit_value: Bit) {
-	assert!(bit_value <= 1);
-	*byte |= bit_value << bit_index;
+	*byte |= bit_value.as_u8() << bit_index;
 }
 
 fn byte_from_bits(bits: &[Bit; 8]) -> u8 {
@@ -30,7 +69,7 @@ fn byte_from_bits(bits: &[Bit; 8]) -> u8 {
 ///   - SIB.base
 ///   - the register in the 3 low bits of the opcode byte.
 fn rex_prefix_byte(w: Bit, r: Bit, x: Bit, b: Bit) -> u8 {
-	byte_from_bits(&[0, 1, 0, 0, w, r, x, b])
+	byte_from_bits(&[Bit::_0, Bit::_1, Bit::_0, Bit::_0, w, r, x, b])
 }
 
 /// Okay, the ModR/M byte. It is optional, one byte, and comes just after the opcode bytes
@@ -49,17 +88,13 @@ fn rex_prefix_byte(w: Bit, r: Bit, x: Bit, b: Bit) -> u8 {
 ///   idk, there may be more to it, ***TODO** explain this using § 2.1.3
 ///   "ModR/M and SIB Bytes" of the x86_64 manual*).
 fn mod_rm_byte(mod_: U2, reg: U3, rm: U3) -> u8 {
-	assert!(mod_ <= 3);
-	assert!(reg <= 7);
-	assert!(rm <= 7);
-	mod_ << 6 | reg << 3 | rm
+	mod_.as_u8() << 6 | reg.as_u8() << 3 | rm.as_u8()
 }
 
 pub(crate) fn separate_bit_b_in_bxxx(four_bit_value: U4) -> (Bit, U3) {
-	assert!(four_bit_value <= 0b1111);
-	let high_bit = four_bit_value >> 3;
-	let low_3_bits = four_bit_value & 0b00000111;
-	(high_bit, low_3_bits)
+	let high_bit = four_bit_value.as_u8() >> 3;
+	let low_3_bits = four_bit_value.as_u8() & 0b00000111;
+	(Bit::new(high_bit), U3::new(low_3_bits))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,12 +111,20 @@ impl Reg64 {
 	/// the REX prefix (because the places these numbers usually go are only 3-bit wide).
 	#[rustfmt::skip]
 	pub(crate) fn id(self) -> U4 {
-		match self {
+		U4::new(match self {
 			Reg64::Rax => 0,  Reg64::Rcx => 1,  Reg64::Rdx => 2,  Reg64::Rbx => 3,
 			Reg64::Rsp => 4,  Reg64::Rbp => 5,  Reg64::Rsi => 6,  Reg64::Rdi => 7,
 			Reg64::R8  => 8,  Reg64::R9  => 9,  Reg64::R10 => 10, Reg64::R11 => 11,
 			Reg64::R12 => 12, Reg64::R13 => 13, Reg64::R14 => 14, Reg64::R15 => 15,
-		}
+		})
+	}
+
+	pub(crate) fn id_lower_u3(self) -> U3 {
+		U3::new(self.id().as_u8() & 0b111)
+	}
+
+	pub(crate) fn id_higher_bit(self) -> Bit {
+		Bit::new(self.id().as_u8() >> 3)
 	}
 
 	#[rustfmt::skip]
@@ -200,10 +243,12 @@ impl AsmInstr {
 
 				if need_zero {
 					// `XOR r32, r/m32` (zero extended so it zeros the whole 64 bits register)
-					let rex_prefix = rex_prefix_byte(0, reg_dst_id_high_bit, 0, reg_dst_id_high_bit);
+					let rex_prefix =
+						rex_prefix_byte(Bit::_0, reg_dst_id_high_bit, Bit::_0, reg_dst_id_high_bit);
 					let opcode_byte = 0x33;
-					let mod_rm = mod_rm_byte(0b11, reg_dst_id_low_3_bits, reg_dst_id_low_3_bits);
-					let needs_rex = reg_dst_id_high_bit == 1;
+					let mod_rm =
+						mod_rm_byte(U2::new(0b11), reg_dst_id_low_3_bits, reg_dst_id_low_3_bits);
+					let needs_rex = reg_dst_id_high_bit == Bit::_1;
 					if needs_rex {
 						machine_code.extend([rex_prefix]);
 					}
@@ -211,27 +256,28 @@ impl AsmInstr {
 				}
 
 				if need_mov {
-					let rex_prefix = rex_prefix_byte(config.rex_w, 0, 0, reg_dst_id_high_bit);
+					let rex_prefix =
+						rex_prefix_byte(config.rex_w, Bit::_0, Bit::_0, reg_dst_id_high_bit);
 					if config.zero_before_and_8 {
 						// `MOV r8, imm8`
-						assert_eq!(config.rex_w, 0);
-						let register_will_be_confused = (4..=7).contains(&reg_dst.id());
-						let needs_rex = reg_dst_id_high_bit == 1 || register_will_be_confused;
-						let opcode_byte = 0xb0 + reg_dst_id_low_3_bits;
+						assert_eq!(config.rex_w, Bit::_0);
+						let register_will_be_confused = (4..=7).contains(&reg_dst.id().as_u8());
+						let needs_rex = reg_dst_id_high_bit == Bit::_1 || register_will_be_confused;
+						let opcode_byte = 0xb0 + reg_dst_id_low_3_bits.as_u8();
 						if needs_rex {
 							machine_code.extend([rex_prefix]);
 						}
 						machine_code.extend([opcode_byte]);
 					} else if config.signed_32 {
 						// `MOV r/m64, imm32`
-						assert_eq!(config.rex_w, 1);
+						assert_eq!(config.rex_w, Bit::_1);
 						let opcode_byte = 0xc7;
-						let mod_rm = mod_rm_byte(0b11, 0, reg_dst_id_low_3_bits);
+						let mod_rm = mod_rm_byte(U2::new(0b11), U3::new(0), reg_dst_id_low_3_bits);
 						machine_code.extend([rex_prefix, opcode_byte, mod_rm]);
 					} else {
 						// `MOV r64, imm64` or `MOV r32, imm32`
-						let opcode_byte = 0xb8 + reg_dst_id_low_3_bits;
-						let needs_rex = config.rex_w == 1 || reg_dst_id_high_bit == 1;
+						let opcode_byte = 0xb8 + reg_dst_id_low_3_bits.as_u8();
+						let needs_rex = config.rex_w == Bit::_1 || reg_dst_id_high_bit == Bit::_1;
 						if needs_rex {
 							machine_code.extend([rex_prefix]);
 						}
@@ -268,15 +314,16 @@ impl AsmInstr {
 				let (reg_src_id_high_bit, reg_src_id_low_3_bits) =
 					separate_bit_b_in_bxxx(reg_as_ptr_src.id());
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
-				let mod_rm = mod_rm_byte(0b00, reg_dst_id_low_3_bits, reg_src_id_low_3_bits);
+				let mod_rm = mod_rm_byte(U2::new(0b00), reg_dst_id_low_3_bits, reg_src_id_low_3_bits);
 				let (rex_w, opcode_bytes): (Bit, &[u8]) = match (src_size, src_sign) {
-					(BaseSize::Size64, _) => (1, &[0x8b]),
-					(BaseSize::Size32, BaseSign::Unsigned) => (0, &[0x8b]),
-					(BaseSize::Size32, BaseSign::Signed) => (1, &[0x63]),
-					(BaseSize::Size8, BaseSign::Unsigned) => (1, &[0x0f, 0xb6]),
-					(BaseSize::Size8, BaseSign::Signed) => (1, &[0x0f, 0xbe]),
+					(BaseSize::Size64, _) => (Bit::_1, &[0x8b]),
+					(BaseSize::Size32, BaseSign::Unsigned) => (Bit::_0, &[0x8b]),
+					(BaseSize::Size32, BaseSign::Signed) => (Bit::_1, &[0x63]),
+					(BaseSize::Size8, BaseSign::Unsigned) => (Bit::_1, &[0x0f, 0xb6]),
+					(BaseSize::Size8, BaseSign::Signed) => (Bit::_1, &[0x0f, 0xbe]),
 				};
-				let rex_prefix = rex_prefix_byte(rex_w, reg_dst_id_high_bit, 0, reg_src_id_high_bit);
+				let rex_prefix =
+					rex_prefix_byte(rex_w, reg_dst_id_high_bit, Bit::_0, reg_src_id_high_bit);
 				let mut machine_code = vec![rex_prefix];
 				machine_code.extend(opcode_bytes);
 				machine_code.extend([mod_rm]);
@@ -293,35 +340,37 @@ impl AsmInstr {
 				let (reg_src_id_high_bit, reg_src_id_low_3_bits) = separate_bit_b_in_bxxx(reg_src.id());
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) =
 					separate_bit_b_in_bxxx(reg_as_ptr_dst.id());
-				let mod_rm = mod_rm_byte(0b00, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
+				let mod_rm = mod_rm_byte(U2::new(0b00), reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
 				let (rex_w, opcode_byte) = match dst_size {
-					BaseSize::Size64 => (1, 0x89),
-					BaseSize::Size32 => (0, 0x89),
-					BaseSize::Size8 => (0, 0x88),
+					BaseSize::Size64 => (Bit::_1, 0x89),
+					BaseSize::Size32 => (Bit::_0, 0x89),
+					BaseSize::Size8 => (Bit::_0, 0x88),
 				};
-				let rex_prefix = rex_prefix_byte(rex_w, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
+				let rex_prefix =
+					rex_prefix_byte(rex_w, reg_src_id_high_bit, Bit::_0, reg_dst_id_high_bit);
 				vec![rex_prefix, opcode_byte, mod_rm]
 			},
 			AsmInstr::PushReg64 { reg_src } => {
 				// `PUSH r64`
 				let (reg_src_id_high_bit, reg_src_id_low_3_bits) = separate_bit_b_in_bxxx(reg_src.id());
-				let rex_prefix = rex_prefix_byte(1, 0, 0, reg_src_id_high_bit);
-				let opcode_byte = 0x50 + reg_src_id_low_3_bits;
+				let rex_prefix = rex_prefix_byte(Bit::_1, Bit::_0, Bit::_0, reg_src_id_high_bit);
+				let opcode_byte = 0x50 + reg_src_id_low_3_bits.as_u8();
 				vec![rex_prefix, opcode_byte]
 			},
 			AsmInstr::PopToReg64 { reg_dst } => {
 				// `POP r64`
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
-				let rex_prefix = rex_prefix_byte(1, 0, 0, reg_dst_id_high_bit);
-				let opcode_byte = 0x58 + reg_dst_id_low_3_bits;
+				let rex_prefix = rex_prefix_byte(Bit::_1, Bit::_0, Bit::_0, reg_dst_id_high_bit);
+				let opcode_byte = 0x58 + reg_dst_id_low_3_bits.as_u8();
 				vec![rex_prefix, opcode_byte]
 			},
 			AsmInstr::AddReg64ToReg64 { reg_src, reg_dst } => {
 				// `ADD r/m64, r64`
 				let (reg_src_id_high_bit, reg_src_id_low_3_bits) = separate_bit_b_in_bxxx(reg_src.id());
 				let (reg_dst_id_high_bit, reg_dst_id_low_3_bits) = separate_bit_b_in_bxxx(reg_dst.id());
-				let mod_rm = mod_rm_byte(0b11, reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
-				let rex_prefix = rex_prefix_byte(1, reg_src_id_high_bit, 0, reg_dst_id_high_bit);
+				let mod_rm = mod_rm_byte(U2::new(0b11), reg_src_id_low_3_bits, reg_dst_id_low_3_bits);
+				let rex_prefix =
+					rex_prefix_byte(Bit::_1, reg_src_id_high_bit, Bit::_0, reg_dst_id_high_bit);
 				let opcode_byte = 0x01;
 				vec![rex_prefix, opcode_byte, mod_rm]
 			},
@@ -349,7 +398,7 @@ impl AsmInstr {
 			AsmInstr::MovImmToReg64 { imm_src, reg_dst } => {
 				let (reg_dst_id_high_bit, _reg_dst_id_low_3_bits) =
 					separate_bit_b_in_bxxx(reg_dst.id());
-				let need_rex_r_bit = reg_dst_id_high_bit == 1;
+				let need_rex_r_bit = reg_dst_id_high_bit == Bit::_1;
 				if imm_src.is_raw_zero() {
 					// `XOR r32, r/m32`
 					2 + if need_rex_r_bit { 1 } else { 0 }
@@ -357,21 +406,21 @@ impl AsmInstr {
 					let config = ConfigForMovImmToReg64::get(imm_src, reg_dst);
 					if config.imm_size_in_bytes == 8 {
 						// `MOV r64, imm64`
-						assert_eq!(config.rex_w, 1);
+						assert_eq!(config.rex_w, Bit::_1);
 						10
 					} else if config.imm_size_in_bytes == 4 && config.signed_32 {
 						// `MOV r/m64, imm32`
-						assert_eq!(config.rex_w, 1);
+						assert_eq!(config.rex_w, Bit::_1);
 						7
 					} else if config.imm_size_in_bytes == 4 {
 						// `MOV r32, imm32`
-						assert_eq!(config.rex_w, 0);
+						assert_eq!(config.rex_w, Bit::_0);
 						5 + if need_rex_r_bit { 1 } else { 0 }
 					} else if config.imm_size_in_bytes == 1 {
 						// `XOR r32, r/m32` then `MOV r8, imm8`
-						assert_eq!(config.rex_w, 0);
+						assert_eq!(config.rex_w, Bit::_0);
 						assert!(!need_rex_r_bit);
-						let register_will_be_confused = (4..=7).contains(&reg_dst.id());
+						let register_will_be_confused = (4..=7).contains(&reg_dst.id().as_u8());
 						4 + if register_will_be_confused { 1 } else { 0 }
 					} else {
 						unreachable!()
@@ -409,7 +458,7 @@ impl ConfigForMovImmToReg64 {
 			Imm::Imm64(imm64) => {
 				// `MOV r64, imm64`
 				Self {
-					rex_w: 1,
+					rex_w: Bit::_1,
 					imm_size_in_bytes: 8,
 					signed_32: false,
 					zero_before_and_8: false,
@@ -419,7 +468,7 @@ impl ConfigForMovImmToReg64 {
 				if imm32.is_signed() {
 					// `MOV r/m64, imm32`, this sign extends the value
 					Self {
-						rex_w: 1,
+						rex_w: Bit::_1,
 						imm_size_in_bytes: 4,
 						signed_32: true,
 						zero_before_and_8: false,
@@ -427,7 +476,7 @@ impl ConfigForMovImmToReg64 {
 				} else {
 					// `MOV r32, imm32`, this zero-extends the value
 					Self {
-						rex_w: 0,
+						rex_w: Bit::_0,
 						imm_size_in_bytes: 4,
 						signed_32: false,
 						zero_before_and_8: false,
@@ -445,7 +494,7 @@ impl ConfigForMovImmToReg64 {
 					// and we only save 3 bytes by using `MOV r/m64, imm8`.
 					// In the end it would be one byte longer so it is not worth it.
 					Self {
-						rex_w: 1,
+						rex_w: Bit::_1,
 						imm_size_in_bytes: 4,
 						signed_32: true,
 						zero_before_and_8: false,
@@ -453,7 +502,7 @@ impl ConfigForMovImmToReg64 {
 				} else {
 					let (reg_dst_id_high_bit, _reg_dst_id_low_3_bits) =
 						separate_bit_b_in_bxxx(reg_dst.id());
-					let need_rex_r_bit = reg_dst_id_high_bit == 1;
+					let need_rex_r_bit = reg_dst_id_high_bit == Bit::_1;
 					if need_rex_r_bit {
 						// `MOV r32, imm32`, this zero-extends the value
 						//
@@ -462,7 +511,7 @@ impl ConfigForMovImmToReg64 {
 						// but two instructions instead of one, so it is not worth it.
 						// This is better.
 						Self {
-							rex_w: 0,
+							rex_w: Bit::_0,
 							imm_size_in_bytes: 4,
 							signed_32: false,
 							zero_before_and_8: false,
@@ -478,7 +527,7 @@ impl ConfigForMovImmToReg64 {
 						// takes either 2 or 3 bytes, so we actually spare either 0 or 1 byte
 						// so it is worth it.
 						Self {
-							rex_w: 0,
+							rex_w: Bit::_0,
 							imm_size_in_bytes: 1,
 							signed_32: false,
 							zero_before_and_8: true,
