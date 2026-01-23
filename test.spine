@@ -43,5 +43,7 @@ kwdi kwdi kwsys 0 0 0 8 kwcpi kwdi "syscall\n" 1 1;
     and that can have nested blocks {{{}}}
     so it only ends here -> }
 
--- Terminates process execution. Segfault probably occurs if it is missing.
+-- kwill; -- If this were to execute, you would be cursed with great misfortune.
+
+-- Terminates process execution. Segfault probably occurs if execution reaches the end without encountering this.
 kwexit;

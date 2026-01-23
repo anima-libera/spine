@@ -1,4 +1,6 @@
-use std::sync::Arc;
+#[cfg(target_family = "unix")]
+use std::os::unix::process::ExitStatusExt;
+use std::{process::ExitCode, sync::Arc};
 
 use spine_compiler::{
 	elf::chmod_x,
@@ -8,131 +10,97 @@ use spine_compiler::{
 #[cfg(feature = "lsp")]
 use spine_language_server::run_lsp;
 
-fn main() {
-	let args: Vec<_> = std::env::args().collect();
-	let has_flag = |names: &[&str]| -> bool { args.iter().any(|arg| names.contains(&arg.as_str())) };
-	let option_value = |names: &[&str]| -> Option<&str> {
-		args
-			.iter()
-			.position(|arg| names.contains(&arg.as_str()))
-			.map(|name_index| args[name_index + 1].as_str())
+use crate::cmd_line::{CmdArgsCases, OutputFile, PrintPid, Run, Source, process_args};
+
+mod cmd_line;
+
+fn main() -> ExitCode {
+	let args_result = process_args();
+	let args_cases = match args_result {
+		Err(exit_code) => return exit_code,
+		Ok(args_cases) => args_cases,
 	};
 
-	let source_file_path = option_value(&["-f", "--source-file"]);
-	let raw_source = option_value(&["-r", "--raw-source"]);
-	let output_file_path = option_value(&["-o", "--output-file"]).unwrap_or("b");
-	let run = has_flag(&["--run"]);
-	let verbose = has_flag(&["-v", "--verbose"]);
-	let license = has_flag(&["--license"]);
-	let help = has_flag(&["-h", "--help"]);
-	#[cfg(feature = "lsp")]
-	let lsp = has_flag(&["--lsp"]);
-
-	#[cfg(feature = "lsp")]
-	if lsp {
-		run_lsp();
-		return;
-	}
-
-	if help {
-		println!("Spine compiler for the Spine programming language");
-		println!();
-		#[cfg(not(feature = "lsp"))]
-		{
-			println!("This build does not include the language server feature");
-			println!("and thus does not support the --lsp option.");
-			println!();
-		}
-		println!("Options:");
-		println!("  -f --source-file   Path to the source file to compile.");
-		println!("  -r --raw-source    Source code to compile.");
-		println!("  -o --output-file   Path to the binary to be produced (default is \"b\").");
-		println!("     --run           (flag) Run the binary if successfully compiled.");
-		println!("  -v --verbose       (flag) Compiler will print more stuff.");
-		println!("     --license       (flag) Compiler will print licensing information.");
-		println!("  -h --help          (flag) Print this help message.");
+	let args = match args_cases {
 		#[cfg(feature = "lsp")]
-		println!("     --lsp           (flag) Be a language server, communicate via LSP.");
-		return;
-	}
-
-	if license {
-		println!("Copyright (C) 2024 Jeanne DEMOUSSEL");
-		println!("https://github.com/anima-libera/spine");
-		print!("The Spine compiler and its VSCode extension ");
-		println!("(both in source code and packaged form)");
-		println!("are licensed under either of");
-		println!(
-			"- the Apache License, Version 2.0\
-			\n  see https://www.apache.org/licenses/LICENSE-2.0"
-		);
-		println!(
-			"- the MIT license\
-			\n  see https://opensource.org/licenses/MIT"
-		);
-		println!("at your option.");
-		return;
-	}
-
-	if source_file_path.is_some() && raw_source.is_some() {
-		panic!("Got both a source file (-f) and raw source (-r), need at most one of them");
-	}
-	let source_code = if let Some(source_file_path) = source_file_path {
-		if verbose {
-			println!("Reading source file \"{source_file_path}\"");
-		}
-		let Some(source_code) = SourceCode::from_file(source_file_path) else {
-			println!("Failed to read source file \"{source_file_path}\"");
-			return;
-		};
-		Arc::new(source_code)
-	} else if let Some(raw_source) = raw_source {
-		if verbose {
-			println!("Reading raw source from command line arguments");
-		}
-		Arc::new(SourceCode::from_string(
-			raw_source.to_string(),
-			"<raw source>".to_string(),
-		))
-	} else {
-		println!("No source code provided, nothing to do.");
-		println!("Run with `--help` to see the command line interface usage.");
-		return;
+		CmdArgsCases::Lsp => {
+			run_lsp();
+			return ExitCode::SUCCESS;
+		},
+		CmdArgsCases::CompilingAndRunning(args) => args,
 	};
 
-	// The good stuff starts here ^^
+	// All the simple cases and command line argument stuff has been taken care of.
+	// What remains is the real code, the compiling and running!
 
-	if verbose {
+	let source_code = match args.source {
+		Some(Source::FilePath(path)) => {
+			if args.verbose {
+				println!("Reading source file \"{path}\"");
+			}
+			let Some(source_code) = SourceCode::from_file(&path) else {
+				println!("Failed to read source file \"{path}\"");
+				return ExitCode::FAILURE;
+			};
+			Arc::new(source_code)
+		},
+		Some(Source::Raw(raw)) => {
+			if args.verbose {
+				println!("Reading raw source from command line arguments");
+			}
+			Arc::new(SourceCode::from_string(
+				raw.to_string(),
+				"<raw source>".to_string(),
+			))
+		},
+		None => {
+			println!("No source code provided, nothing to do.");
+			println!("Run with `--help` to see the command line interface usage.");
+			return ExitCode::SUCCESS;
+		},
+	};
+
+	// The good stuff starts here
+	// Compiling to machine code in an ELF
+
+	if args.verbose {
 		println!("Parsing to high level internal representation");
 	}
 	let high_program = parse(Arc::clone(&source_code));
 
 	let (errors, warnings) = high_program.get_errors_and_warnings();
 	if !errors.is_empty() {
-		if verbose {
+		if args.verbose {
 			println!("There are compile-time errors, compilation is aborted");
 		}
 		for error in errors {
 			error.print();
 		}
-		return;
+		return ExitCode::FAILURE;
 	}
-	if !warnings.is_empty() && verbose {
+	if !warnings.is_empty() && args.verbose {
 		println!("There are compile-time warnings but it is no big deal");
 	}
 	for warning in warnings {
 		warning.print();
 	}
 
-	if verbose {
+	if args.verbose {
 		println!("Compiling to low level internal representation");
 	}
 	let low_program = compile_to_low_level(&high_program);
-	if verbose {
-		println!("Compiling to quasi machine code");
+
+	if args.verbose {
+		println!("Compiling to almost machine code");
 	}
 	let bin = compile_to_binary(&low_program);
-	if verbose {
+
+	if args.verbose {
+		println!("Generating the ELF x86_64 executable and the machine code");
+	}
+	let elf = bin.to_binary();
+
+	if args.print_machine_code {
 		println!("Machine code:");
 		for byte in bin.code_segment_binary_machine_code() {
 			print!("{byte:02x}");
@@ -140,14 +108,146 @@ fn main() {
 		println!();
 	}
 
-	if verbose {
-		println!("Writing binary to file \"{output_file_path}\"");
-	}
-	std::fs::write(output_file_path, bin.to_binary()).unwrap();
-	chmod_x(output_file_path);
+	// Emitting the ELF in an executable file
 
-	if run {
-		let command = format!("./{output_file_path}");
-		let _ = std::process::Command::new(command).spawn();
+	let Some(args_output_file) = args.output_file else {
+		if args.verbose {
+			println!("Not writing to a file");
+		}
+		return ExitCode::SUCCESS;
+	};
+
+	let output_file_path = match args_output_file {
+		OutputFile::SpecifiedPath(ref path) => path,
+		OutputFile::DefaultPath => &String::from("b"),
+	};
+	if args.verbose {
+		println!(
+			"Writing binary to file \"{output_file_path}\"{}",
+			if matches!(args_output_file, OutputFile::DefaultPath) {
+				" (defualt name)"
+			} else {
+				""
+			}
+		);
+	}
+	let write_result = std::fs::write(output_file_path, elf);
+	if let Err(error) = write_result {
+		println!("Error when writing to file \"{output_file_path}\": {error}");
+		return ExitCode::FAILURE;
+	}
+	let chmod_result = chmod_x(output_file_path);
+	if let Err(error) = chmod_result {
+		println!("Error when making the file \"{output_file_path}\" executable: {error}");
+		return ExitCode::FAILURE;
+	}
+
+	// Running the generated executable
+
+	let Some(args_run) = args.run else {
+		return ExitCode::SUCCESS;
+	};
+
+	let command = format!("./{output_file_path}");
+	if args.verbose {
+		println!("Running \"{output_file_path}\"");
+		println!("\x1b[36m{command}\x1b[39m");
+	}
+	let process = std::process::Command::new(command).spawn();
+	let mut process = match process {
+		Err(error) => {
+			println!("Error when attempting to run \"{output_file_path}\": {error}");
+			return ExitCode::FAILURE;
+		},
+		Ok(process) => process,
+	};
+	let pid = process.id();
+	if let Run::YesAndPrintPid(PrintPid::Whenever) = args_run {
+		println!("\x1b[32mRunning with pid {}\x1b[39m", pid);
+	}
+	let status = process.wait();
+	// The process has ended
+	if let Run::YesAndPrintPid(PrintPid::AtTheEnd) = args_run {
+		println!("\x1b[32mRan with pid {}\x1b[39m", pid);
+	}
+	let status = match status {
+		Err(error) => {
+			println!("Error when running \"{output_file_path}\": {error}");
+			return ExitCode::FAILURE;
+		},
+		Ok(status) => status,
+	};
+	if status.success() {
+		return ExitCode::SUCCESS;
+	}
+	// Print whats wrong in red (blood!)
+	if let Some(exit_code) = status.code() {
+		println!("\x1b[31mExit code {exit_code}\x1b[39m")
+	}
+	#[cfg(target_family = "unix")]
+	#[allow(clippy::manual_map)]
+	{
+		enum TermOrStop {
+			Terminated,
+			Stopped,
+		}
+		if let Some((signal_code, term_or_stop)) = {
+			if let Some(signal_code) = status.signal() {
+				Some((signal_code, TermOrStop::Terminated))
+			} else if let Some(signal_code) = status.stopped_signal() {
+				Some((signal_code, TermOrStop::Stopped))
+			} else {
+				None
+			}
+		} {
+			let signal = if let Some(signal_name) = signal_name(signal_code) {
+				signal_name.to_string()
+			} else {
+				signal_code.to_string()
+			};
+			let term_or_stop = match term_or_stop {
+				TermOrStop::Terminated => "Terminated",
+				TermOrStop::Stopped => "Stopped",
+			};
+			println!("\x1b[31m{term_or_stop} by signal {signal}\x1b[39m");
+		}
+	}
+	ExitCode::FAILURE
+}
+
+fn signal_name(signal_code: i32) -> Option<&'static str> {
+	match signal_code {
+		1 => Some("SIGHUP"),
+		2 => Some("SIGINT"),
+		3 => Some("SIGQUIT"),
+		4 => Some("SIGILL"),
+		5 => Some("SIGTRAP"),
+		6 => Some("SIGABRT"),
+		7 => Some("SIGBUS"),
+		8 => Some("SIGFPE"),
+		9 => Some("SIGKILL"),
+		10 => Some("SIGUSR1"),
+		11 => Some("SIGSEGV"),
+		12 => Some("SIGUSR2"),
+		13 => Some("SIGPIPE"),
+		14 => Some("SIGALRM"),
+		15 => Some("SIGTERM"),
+		16 => Some("SIGSTKFLT"),
+		17 => Some("SIGCHLD"),
+		18 => Some("SIGCONT"),
+		19 => Some("SIGSTOP"),
+		20 => Some("SIGTSTP"),
+		21 => Some("SIGTTIN"),
+		22 => Some("SIGTTOU"),
+		23 => Some("SIGURG"),
+		24 => Some("SIGXCPU"),
+		25 => Some("SIGXFSZ"),
+		26 => Some("SIGVTALRM"),
+		27 => Some("SIGPROF"),
+		28 => Some("SIGWINCH"),
+		29 => Some("SIGIO"),
+		30 => Some("SIGPWR"),
+		31 => Some("SIGSYS"),
+		_ => None,
 	}
 }

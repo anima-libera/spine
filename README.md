@@ -116,7 +116,8 @@ Some of the instructions syntax are keywords that begin with `kw`, this is the s
 - `"awawa"` `( --> pointer len)` pushes a pointer to the begining of static data that is the utf-8 encoding of `awawa`, and then pushes the length (of the utf-8 encoding, in bytes) of that string. It works for other strings too. See the [character escape syntax](#character-escape). Note how it works nicely with `kwps`.
 - `kwsys` `(s a1 a2 a3 a4 a5 a6 --> ret1 ret2)` runs syscall number s with the arguments a1 to a6 (the arguments must be numbers and not pointers, just cast pointers using `kwcpi`). Pushes the syscall result, and then the second result (only used by the pipe syscall on some architectures, not important).
 - `kwcpi` `(pointer --> number)` casts a pointer to a number. Effectively compiles down to nothing, it just changes the compile-time type of the top value.
-- `kwdi` `(n --> )` pops a number and discards it
+- `kwdi` `(n --> )` pops a number and discards it.
+- `kwill` `( --> )` executes the `UD2` "undefined instruction" defined x86_64 instruction, the computer explodes.
 
 #### Character escape
 
@@ -149,7 +150,7 @@ The hexadecimal digits can be uppercase.
 
 ## License
 
-Copyright © 2024-2026 Jeanne DEMOUSSEL.
+Copyright © 2024-2026 Jeanne Demoussel.
 
 This project is licensed under either of
 

@@ -195,6 +195,8 @@ pub(crate) enum AsmInstr {
 	/// Return value is in RAX,
 	/// second return value (only used by the pipe syscall on some architectures) is in RDX.
 	Syscall,
+	/// `UD2` "Undefined Instruction", raises an "invalid opcode" exception.
+	Illegal,
 	/// This is a fake instruction that doesn't generate any machine code.
 	/// It just helps with code generation by marking the address of the next instruction
 	/// with its name (to make it an easy target for jumps, branches and calls).
@@ -374,7 +376,8 @@ impl AsmInstr {
 				let opcode_byte = 0x01;
 				vec![rex_prefix, opcode_byte, mod_rm]
 			},
-			AsmInstr::Syscall => vec![0x0f, 0x05],
+			AsmInstr::Syscall => vec![0x0f, 0x05], // `SYSCALL`
+			AsmInstr::Illegal => vec![0x0f, 0x0b], // `UD2`
 			AsmInstr::Label { .. } => vec![],
 			AsmInstr::JumpToLabel { label_name } => {
 				// `JMP rel32`
@@ -436,6 +439,7 @@ impl AsmInstr {
 			AsmInstr::PushReg64 { .. } => 2,
 			AsmInstr::PopToReg64 { .. } => 2,
 			AsmInstr::Syscall => 2,
+			AsmInstr::Illegal => 2,
 			AsmInstr::Label { .. } => 0,
 			AsmInstr::JumpToLabel { .. } => 5,
 		}

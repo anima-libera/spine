@@ -415,6 +415,26 @@ impl LanguageServer for SpineLanguageServer {
 					})),
 					..CompletionItem::default()
 				},
+				CompletionItem {
+					label: "kwill".to_string(),
+					label_details: Some(CompletionItemLabelDetails {
+						detail: Some(" ( --> )".to_string()),
+						description: Some("illegal".to_string()),
+					}),
+					insert_text: None,
+					detail: None,
+					kind: Some(CompletionItemKind::KEYWORD),
+					documentation: Some(Documentation::MarkupContent(MarkupContent {
+						kind: MarkupKind::Markdown,
+						value: "```spine\n\
+							kwill\n\
+							```\n\
+							*Explicit keyword*\n\n\
+							Executes the `UD2` illegal instruction, an explosion follows."
+							.to_string(),
+					})),
+					..CompletionItem::default()
+				},
 			])))
 		} else {
 			Ok(None)

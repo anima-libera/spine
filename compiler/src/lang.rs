@@ -164,16 +164,18 @@ pub enum ExplicitKeywordWhich {
 	PrintStr,
 	/// Pops two i64 values, add them together, and push the result.
 	Add,
-	/// Terminate the process execution by calling the exit syscall, with 0 as the exit code.
+	/// Terminates the process execution by calling the exit syscall, with 0 as the exit code.
 	Exit,
 	DiscardI64,
-	/// Cast a pointer to i64. Compiles into a nop.
+	/// Casts a pointer to i64. Compiles into a nop.
 	CastPointerToI64,
 	/// Performs a syscall with the syscall number and the maximum number of arguments, all raw i64 types.
 	/// Pops 6 i64 arguments from last to first, then pops the syscall number.
 	/// Pushes the second return value (only used by the pipe syscall on some architectures)
 	/// then pushes the (first) return value.
 	Syscall,
+	/// Executes the illegal x86_64 instruction `UD2`.
+	Illegal,
 }
 
 /// Explicit keyword token, like `kwexit`.
@@ -896,6 +898,7 @@ fn parse_word(reader: &mut Reader) -> Token {
 			"kwdi" => Some(ExplicitKeywordWhich::DiscardI64),
 			"kwcpi" => Some(ExplicitKeywordWhich::CastPointerToI64),
 			"kwsys" => Some(ExplicitKeywordWhich::Syscall),
+			"kwill" => Some(ExplicitKeywordWhich::Illegal),
 			_ => None,
 		};
 		Token::ExplicitKeyword(ExplicitKeyword { span, keyword })
@@ -1161,6 +1164,9 @@ impl HighInstruction {
 						operand_types: std::iter::repeat_n(SpineType::I64, 7).collect(),
 						return_types: vec![SpineType::I64, SpineType::I64],
 					},
+					ExplicitKeywordWhich::Illegal => {
+						OperandAndReturnTypes { operand_types: vec![], return_types: vec![] }
+					},
 				}
 			},
 			HighInstruction::Identifier(_) => unimplemented!(),
@@ -1323,6 +1329,7 @@ enum LowInstr {
 	AddI64AndI64,
 	Exit,
 	Syscall,
+	Illegal,
 	/// Nop that just disappears in the codegen.
 	NopZeroBytes,
 	PopI64AndDiscard,
@@ -1346,6 +1353,7 @@ impl LowInstr {
 				std::iter::repeat_n(SpineType::I64, 7).collect(),
 				vec![SpineType::I64, SpineType::I64],
 			),
+			LowInstr::Illegal => (vec![], vec![]),
 			LowInstr::NopZeroBytes => (vec![], vec![]),
 			LowInstr::PopI64AndDiscard => (vec![SpineType::I64], vec![]),
 		}
@@ -1425,6 +1433,7 @@ fn compile_statement_to_low_level_statements(
 							ExplicitKeywordWhich::DiscardI64 => LowInstr::PopI64AndDiscard,
 							ExplicitKeywordWhich::CastPointerToI64 => LowInstr::NopZeroBytes,
 							ExplicitKeywordWhich::Syscall => LowInstr::Syscall,
+							ExplicitKeywordWhich::Illegal => LowInstr::Illegal,
 						}
 					},
 					HighInstruction::Identifier(_) => unimplemented!(),
@@ -1548,7 +1557,7 @@ pub fn compile_to_binary(program: &LowProgram) -> Binary {
 						LowInstr::NopZeroBytes => {},
 						LowInstr::Syscall => {
 							bin.asm_instrs.extend([
-								//  RDI, RSI, RDX, R10, R8, R9.
+								// Parameters are in this order: RDI, RSI, RDX, R10, R8, R9.
 								PopToReg64 { reg_dst: Reg64::R9 }, // Last argument
 								PopToReg64 { reg_dst: Reg64::R8 },
 								PopToReg64 { reg_dst: Reg64::R10 },
@@ -1562,6 +1571,12 @@ pub fn compile_to_binary(program: &LowProgram) -> Binary {
 								// Syscall second result, only used by the pipe syscall on some architectures,
 								// see linux syscall documentation.
 								PushReg64 { reg_src: Reg64::Rdx },
+							]);
+						},
+						LowInstr::Illegal => {
+							bin.asm_instrs.extend([
+								// UD2
+								Illegal,
 							]);
 						},
 					}

@@ -136,7 +136,7 @@ impl Binary {
 
 		// See https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
 		// Also see https://github.com/vishen/go-x64-executable/blob/master/main.go
-		// Beware! This is a certified ELF moment!
+		// Beware, this is an ELF moment.
 		// 64 bits
 
 		let entry_point_address = Binary::CODE_OFFSET_IN_BINARY
@@ -236,10 +236,10 @@ impl Binary {
 	}
 }
 
-pub fn chmod_x(path: impl AsRef<std::path::Path>) {
-	let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+pub fn chmod_x(path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+	let mut permissions = std::fs::metadata(&path)?.permissions();
 	let permission_flags = permissions.mode();
-	let executable_mask = 0b0001001001; // drwxrwxrwx, we set the xs to 1
+	let executable_mask = 0b0001001001; // `drwxrwxrwx`, we set every `x` to 1
 	permissions.set_mode(permission_flags | executable_mask);
-	std::fs::set_permissions(path, permissions).unwrap();
+	std::fs::set_permissions(path, permissions)
 }
