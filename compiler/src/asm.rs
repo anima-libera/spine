@@ -104,6 +104,13 @@ pub(crate) enum Reg64 {
 	Rax, Rcx, Rdx, Rbx, Rsp, Rbp, Rsi, Rdi, R8, R9, R10, R11, R12, R13, R14, R15,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub(crate) enum Reg32 {
+	Eax, Ecx, Edx, Ebx, Esp, Ebp, Esi, Edi, R8d, R9d, R10d, R11d, R12d, R13d, R14d, R15d,
+}
+
 impl Reg64 {
 	/// These registers are represented by 4-bit numbers.
 	///
@@ -140,7 +147,79 @@ impl Reg64 {
 
 impl std::fmt::Display for Reg64 {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "{}", self.name())
+		write!(f, "%{}", self.name())
+	}
+}
+
+impl Reg32 {
+	#[rustfmt::skip]
+	pub(crate) fn id(self) -> U4 {
+		U4::new(match self {
+			Reg32::Eax  => 0,  Reg32::Ecx  => 1,  Reg32::Edx  => 2,  Reg32::Ebx  => 3,
+			Reg32::Esp  => 4,  Reg32::Ebp  => 5,  Reg32::Esi  => 6,  Reg32::Edi  => 7,
+			Reg32::R8d  => 8,  Reg32::R9d  => 9,  Reg32::R10d => 10, Reg32::R11d => 11,
+			Reg32::R12d => 12, Reg32::R13d => 13, Reg32::R14d => 14, Reg32::R15d => 15,
+		})
+	}
+
+	pub(crate) fn id_lower_u3(self) -> U3 {
+		U3::new(self.id().as_u8() & 0b111)
+	}
+
+	pub(crate) fn id_higher_bit(self) -> Bit {
+		Bit::new(self.id().as_u8() >> 3)
+	}
+
+	#[rustfmt::skip]
+	pub(crate) fn name(self) -> &'static str {
+		match self {
+			Reg32::Eax  => "eax",  Reg32::Ecx  => "ecx",  Reg32::Edx  => "edx",  Reg32::Ebx  => "ebx",
+			Reg32::Esp  => "esp",  Reg32::Ebp  => "ebp",  Reg32::Esi  => "esi",  Reg32::Edi  => "edi",
+			Reg32::R8d  => "r8d",  Reg32::R9d  => "r9d",  Reg32::R10d => "r10d", Reg32::R11d => "r11d",
+			Reg32::R12d => "r12d", Reg32::R13d => "r13d", Reg32::R14d => "r14d", Reg32::R15d => "r15d",
+		}
+	}
+
+	#[rustfmt::skip]
+	pub(crate) fn to_64_bits(self) -> Reg64 {
+		match self {
+			Reg32::Eax  => Reg64::Rax, Reg32::Ecx  => Reg64::Rcx, Reg32::Edx  => Reg64::Rdx, Reg32::Ebx  => Reg64::Rbx,
+			Reg32::Esp  => Reg64::Rsp, Reg32::Ebp  => Reg64::Rbp, Reg32::Esi  => Reg64::Rsi, Reg32::Edi  => Reg64::Rdi,
+			Reg32::R8d  => Reg64::R8 , Reg32::R9d  => Reg64::R9 , Reg32::R10d => Reg64::R10, Reg32::R11d => Reg64::R11,
+			Reg32::R12d => Reg64::R12, Reg32::R13d => Reg64::R13, Reg32::R14d => Reg64::R14, Reg32::R15d => Reg64::R15,
+		}
+	}
+}
+
+impl std::fmt::Display for Reg32 {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "%{}", self.name())
+	}
+}
+
+pub(crate) enum RegOrMem64 {
+	Reg64(Reg64),
+	// TODO
+}
+
+impl std::fmt::Display for RegOrMem64 {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Reg64(reg) => write!(f, "{reg}"),
+		}
+	}
+}
+
+pub(crate) enum RegOrMem32 {
+	Reg32(Reg32),
+	// TODO
+}
+
+impl std::fmt::Display for RegOrMem32 {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Reg32(reg) => write!(f, "{reg}"),
+		}
 	}
 }
 

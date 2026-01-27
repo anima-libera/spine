@@ -1,9 +1,9 @@
 use crate::{
 	asm::{
-		Reg64, separate_bit_b_in_bxxx,
-		small_uints::{Bit, U3, U4},
+		Reg32, Reg64, RegOrMem32, RegOrMem64, separate_bit_b_in_bxxx,
+		small_uints::{Bit, U2, U3, U4},
 	},
-	x86_64::{opcode_with_reg::OpcodeWithU3Reg, rex_prefix::RexPrefix},
+	x86_64::{modrm_byte::ModRmByte, opcode_with_reg::OpcodeWithU3Reg, rex_prefix::RexPrefix},
 };
 
 /// Exactly one x86_64 instruction, with arguments and the choice of a specific variant and all.
@@ -29,6 +29,20 @@ enum X8664Instr {
 	/// Pops the top 64 bits value from the top of the stack and writes it in the register,
 	/// making the stack 64 bits smaller.
 	PopReg64(Reg64),
+	/// - Mnemonic: `XOR`
+	/// - Variant: `XOR r32, r/m32` (dst, src)
+	/// - Opcode: `33 /r`
+	/// - Can be used to zero a 64 bits register since it zero-extends the destination register.
+	///
+	/// Does a bitwise xor of the 32 bits arguments and writes it in the 32 bits destination register,
+	/// zero-extending the result (filling the upper part of the 64 bits destination register with zeros).
+	XorRegOrMem32ToReg32 { src: RegOrMem32, dst: Reg32 },
+	/// - Mnemonic: `XOR`
+	/// - Variant: `XOR r64, r/m64` (dst, src)
+	/// - Opcode: `33 /r`
+	///
+	/// Does a bitwise xor of the arguments and writes it in the destination register.
+	XorRegOrMem64ToReg64 { src: RegOrMem64, dst: Reg64 },
 	// TODO: get all of `AsmInstr` variants in here.
 }
 
@@ -36,15 +50,39 @@ impl X8664Instr {
 	fn to_machine_code(&self) -> X8664InstrAsMachineCode {
 		match self {
 			X8664Instr::PushReg64(reg) | X8664Instr::PopReg64(reg) => {
-				let rex =
-					RexPrefix::new(Bit::_0, Bit::_0, Bit::_0, reg.id_higher_bit()).keep_if_useful();
 				let opcode_without_reg = match self {
 					X8664Instr::PushReg64(_) => 0x50,
 					X8664Instr::PopReg64(_) => 0x58,
 					_ => unreachable!(),
 				};
 				let opcode = Opcode::from_opcode_and_reg(opcode_without_reg, reg.id_lower_u3());
-				X8664InstrAsMachineCode { rex, opcode }
+				let rex =
+					RexPrefix::new(Bit::_0, Bit::_0, Bit::_0, reg.id_higher_bit()).keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm: None }
+			},
+			X8664Instr::XorRegOrMem32ToReg32 { src, dst } => {
+				let opcode = Opcode::from_byte(0x33);
+				let RegOrMem32::Reg32(src) = src;
+				let modrm = Some(ModRmByte::new(
+					U2::new(0b11),
+					dst.id_lower_u3(),
+					src.id_lower_u3(),
+				));
+				let rex = RexPrefix::new(Bit::_0, dst.id_higher_bit(), Bit::_0, src.id_higher_bit())
+					.keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm }
+			},
+			X8664Instr::XorRegOrMem64ToReg64 { src, dst } => {
+				let opcode = Opcode::from_byte(0x33);
+				let RegOrMem64::Reg64(src) = src;
+				let modrm = Some(ModRmByte::new(
+					U2::new(0b11),
+					dst.id_lower_u3(),
+					src.id_lower_u3(),
+				));
+				let rex = RexPrefix::new(Bit::_1, dst.id_higher_bit(), Bit::_0, src.id_higher_bit())
+					.keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm }
 			},
 		}
 	}
@@ -53,8 +91,14 @@ impl X8664Instr {
 impl std::fmt::Display for X8664Instr {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			X8664Instr::PushReg64(reg) => write!(f, "push q %{reg}"),
-			X8664Instr::PopReg64(reg) => write!(f, "pop q %{reg}"),
+			X8664Instr::PushReg64(reg) => write!(f, "push q reg: {reg}"),
+			X8664Instr::PopReg64(reg) => write!(f, "pop q reg: {reg}"),
+			X8664Instr::XorRegOrMem32ToReg32 { src, dst } => {
+				write!(f, "xor d reg/mem: {src} -> reg: {dst}")
+			},
+			X8664Instr::XorRegOrMem64ToReg64 { src, dst } => {
+				write!(f, "xor q reg/mem: {src} -> reg: {dst}")
+			},
 		}
 	}
 }
@@ -113,6 +157,54 @@ mod rex_prefix {
 		}
 		pub(crate) fn b(self) -> Bit {
 			Bit::new(self.wrxb.as_u8() & 1)
+		}
+	}
+}
+
+mod modrm_byte {
+	use crate::asm::small_uints::{U2, U3};
+
+	// TODO: Add SIB byte thing, and couple it with Mod R/M byte thing, they make more sense together!
+
+	/// Mod R/M byte. It is optional, one byte, and comes just after the opcode bytes
+	/// (before the optional SIB byte and the optional displacement and the optional immediate).
+	///
+	/// Its format is `mod` (2 bits) then `reg` (3 bits) then `r/m` (3 bits) (from high to low), where:
+	/// - `mod`: if it is 11 it means there is no addressing stuff hapenning (no dereferencing),
+	///   if it is 00 it means there is *maybe* a simple dereferencing (or maybe not, the Table 2-2
+	///   "32-Bit Addressing Forms with the ModR/M Byte" in the Intel x86_64 manual says there are
+	///   some exceptions depending on the registers involved), if it is 01 or 10 it means there is
+	///   *maybe* a dereferencing of an address added to an immediate offset.
+	///   ***TODO** explain this better using § 2.1.3 "ModR/M and SIB Bytes" of the x86_64 manual.*
+	/// - `reg` is either the 3 low bits of a register id that is in one of the operands,
+	///   or a specific value that complements the opcode bytes.
+	/// - `r/m` is also the 3 low bits of a register id that is in one of the operands (or not?
+	///   idk, there may be more to it, ***TODO** explain this using § 2.1.3
+	///   "ModR/M and SIB Bytes" of the x86_64 manual*).
+	#[derive(Clone, Copy)]
+	pub(crate) struct ModRmByte {
+		mod_: U2,
+		reg: U3,
+		rm: U3,
+	}
+
+	impl ModRmByte {
+		pub(crate) fn new(mod_: U2, reg: U3, rm: U3) -> ModRmByte {
+			ModRmByte { mod_, reg, rm }
+		}
+
+		pub(crate) fn to_byte(self) -> u8 {
+			(self.mod_.as_u8() << 6) | (self.reg.as_u8() << 3) | self.rm.as_u8()
+		}
+
+		pub(crate) fn mod_(self) -> U2 {
+			self.mod_
+		}
+		pub(crate) fn reg(self) -> U3 {
+			self.reg
+		}
+		pub(crate) fn rm(self) -> U3 {
+			self.rm
 		}
 	}
 }
@@ -179,6 +271,7 @@ impl Opcode {
 struct X8664InstrAsMachineCode {
 	rex: Option<RexPrefix>,
 	opcode: Opcode,
+	modrm: Option<ModRmByte>,
 }
 
 impl X8664InstrAsMachineCode {
@@ -188,6 +281,9 @@ impl X8664InstrAsMachineCode {
 			binary.push(rex.to_byte());
 		}
 		binary.push(self.opcode.to_byte());
+		if let Some(modrm) = self.modrm {
+			binary.push(modrm.to_byte());
+		}
 		binary
 	}
 }
