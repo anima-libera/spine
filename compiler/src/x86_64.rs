@@ -90,11 +90,32 @@ impl X8664Instr {
 
 impl std::fmt::Display for X8664Instr {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		// Format: `mnemonic size arguments...`
+		// Size is:
+		// - `b` for 8 bits (Byte)
+		// - `w` for 16 bits (Word)
+		// - `d` for 32 bits (Double-word)
+		// - `q` for 64 bits (Quad-word)
+		//
+		// Arguments are like `reg: %rax`, `reg/mem: %r11d`
+		// We mention the operand type (reg, r/m, etc.) as it actually is
+		// for the instruction encoding variant that is actually used;
+		// "mov %rbx -> %rcx" would be ambiguous in which variant is used (r/m -> reg or reg -> r/m).
+		//
+		// We use an arrow `->` to make it clear which operand is the destination,
+		// because im tired of intel syntax vs at&t syntax so here is an actually clear syntax instead.
+		//
+		// When a value is zero-extended or sign-extended it is clearly indicated
+		// by `zx` or `sx` respectively.
+		// If writing to a 32 bits register actually writes to the corresponding 64 bits register
+		// with zero-extension or sign-extension it is written with the name of the 64 bits register
+		// like `... -> reg: %eax zx %rax`.
 		match self {
 			X8664Instr::PushReg64(reg) => write!(f, "push q reg: {reg}"),
 			X8664Instr::PopReg64(reg) => write!(f, "pop q reg: {reg}"),
 			X8664Instr::XorRegOrMem32ToReg32 { src, dst } => {
-				write!(f, "xor d reg/mem: {src} -> reg: {dst}")
+				let dst64 = dst.to_64_bits();
+				write!(f, "xor d reg/mem: {src} -> reg: {dst} zx {dst64}")
 			},
 			X8664Instr::XorRegOrMem64ToReg64 { src, dst } => {
 				write!(f, "xor q reg/mem: {src} -> reg: {dst}")
