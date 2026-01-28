@@ -111,6 +111,14 @@ pub(crate) enum Reg32 {
 	Eax, Ecx, Edx, Ebx, Esp, Ebp, Esi, Edi, R8d, R9d, R10d, R11d, R12d, R13d, R14d, R15d,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub(crate) enum Reg8 {
+	Al, Cl, Dl, Bl, Spl, Bpl, Sil, Dil, R8b, R9b, R10b, R11b, R12b, R13b, R14b, R15b,
+	// I dont care about AH, BH, and the others that are not the lowest part of their bigger registers.
+}
+
 impl Reg64 {
 	/// These registers are represented by 4-bit numbers.
 	///
@@ -197,6 +205,62 @@ impl std::fmt::Display for Reg32 {
 	}
 }
 
+impl Reg8 {
+	#[rustfmt::skip]
+	pub(crate) fn id(self) -> U4 {
+		U4::new(match self {
+			Reg8::Al   => 0,  Reg8::Cl   => 1,  Reg8::Dl   => 2,  Reg8::Bl   => 3,
+			Reg8::Spl  => 4,  Reg8::Bpl  => 5,  Reg8::Sil  => 6,  Reg8::Dil  => 7,
+			Reg8::R8b  => 8,  Reg8::R9b  => 9,  Reg8::R10b => 10, Reg8::R11b => 11,
+			Reg8::R12b => 12, Reg8::R13b => 13, Reg8::R14b => 14, Reg8::R15b => 15,
+		})
+	}
+
+	/// Instructions sometimes (often? always?) require the mere presence of a REX prefix
+	/// to allow refering to SPL, DIL, BPL or SIL.
+	///
+	/// See for example the spec for `MOV r8, imm8`: it says that if there is a REX prefix
+	/// (even without any paylod bit set) it will change the meaning of register codes 4-7 (including)
+	/// to mean SPL,DIL,BPL,SIL instead of AH,BH,CH,DH.
+	pub(crate) fn is_rex_required(self) -> bool {
+		(4..=7).contains(&self.id().as_u8())
+	}
+
+	pub(crate) fn id_lower_u3(self) -> U3 {
+		U3::new(self.id().as_u8() & 0b111)
+	}
+
+	pub(crate) fn id_higher_bit(self) -> Bit {
+		Bit::new(self.id().as_u8() >> 3)
+	}
+
+	#[rustfmt::skip]
+	pub(crate) fn name(self) -> &'static str {
+		match self {
+			Reg8::Al   => "al",   Reg8::Cl   => "cl",   Reg8::Dl   => "dl",   Reg8::Bl   => "bl",
+			Reg8::Spl  => "spl",  Reg8::Bpl  => "bpl",  Reg8::Sil  => "sil",  Reg8::Dil  => "dil",
+			Reg8::R8b  => "r8b",  Reg8::R9b  => "r9b",  Reg8::R10b => "r10b", Reg8::R11b => "r11b",
+			Reg8::R12b => "r12b", Reg8::R13b => "r13b", Reg8::R14b => "r14b", Reg8::R15b => "r15b",
+		}
+	}
+
+	#[rustfmt::skip]
+	pub(crate) fn to_64_bits(self) -> Reg64 {
+		match self {
+			Reg8::Al   => Reg64::Rax, Reg8::Cl   => Reg64::Rcx, Reg8::Dl   => Reg64::Rdx, Reg8::Bl   => Reg64::Rbx,
+			Reg8::Spl  => Reg64::Rsp, Reg8::Bpl  => Reg64::Rbp, Reg8::Sil  => Reg64::Rsi, Reg8::Dil  => Reg64::Rdi,
+			Reg8::R8b  => Reg64::R8 , Reg8::R9b  => Reg64::R9 , Reg8::R10b => Reg64::R10, Reg8::R11b => Reg64::R11,
+			Reg8::R12b => Reg64::R12, Reg8::R13b => Reg64::R13, Reg8::R14b => Reg64::R14, Reg8::R15b => Reg64::R15,
+		}
+	}
+}
+
+impl std::fmt::Display for Reg8 {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "%{}", self.name())
+	}
+}
+
 pub(crate) enum RegOrMem64 {
 	Reg64(Reg64),
 	// TODO
@@ -273,6 +337,7 @@ pub(crate) enum AsmInstr {
 	/// Arguments are passed via registers in that order: RDI, RSI, RDX, R10, R8, R9.
 	/// Return value is in RAX,
 	/// second return value (only used by the pipe syscall on some architectures) is in RDX.
+	/// The only registers that are modified are RCX, R11, RAX, and in a niche case RDX.
 	Syscall,
 	/// `UD2` "Undefined Instruction", raises an "invalid opcode" exception.
 	Illegal,
