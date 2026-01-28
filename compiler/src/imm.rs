@@ -77,6 +77,31 @@ impl_raw_to_bytes!(Raw8, to_8_bytes, i64, u64, 8);
 impl_raw_to_bytes!(Raw8, to_4_bytes, i32, u32, 4);
 impl_raw_to_bytes!(Raw8, to_1_bytes, i8, u8, 1);
 
+impl Raw64 {
+	pub(crate) fn to_u64(self) -> u64 {
+		match self {
+			Raw64::Signed(value) => value.cast_unsigned(),
+			Raw64::Unsigned(value) => value,
+		}
+	}
+}
+impl Raw32 {
+	pub(crate) fn to_u32(self) -> u32 {
+		match self {
+			Raw32::Signed(value) => value.cast_unsigned(),
+			Raw32::Unsigned(value) => value,
+		}
+	}
+}
+impl Raw8 {
+	pub(crate) fn to_u8(self) -> u8 {
+		match self {
+			Raw8::Signed(value) => value.cast_unsigned(),
+			Raw8::Unsigned(value) => value,
+		}
+	}
+}
+
 pub(crate) enum Imm8 {
 	Raw(Raw8),
 }

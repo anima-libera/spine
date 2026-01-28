@@ -3,6 +3,7 @@ use crate::{
 		Reg32, Reg64, RegOrMem32, RegOrMem64, separate_bit_b_in_bxxx,
 		small_uints::{Bit, U2, U3, U4},
 	},
+	imm::{Imm64, Raw64},
 	x86_64::{modrm_byte::ModRmByte, opcode_with_reg::OpcodeWithU3Reg, rex_prefix::RexPrefix},
 };
 
@@ -43,6 +44,12 @@ enum X8664Instr {
 	///
 	/// Does a bitwise xor of the arguments and writes it in the destination register.
 	XorRegOrMem64ToReg64 { src: RegOrMem64, dst: Reg64 },
+	/// - Mnemonic: `MOV`
+	/// - Variant: `MOV r64, imm64` (dst, src)
+	/// - Opcode: `REX.W + B8+ rd io`
+	///
+	/// Sets the register to the immediate value.
+	MovImm64ToReg64 { src: Raw64, dst: Reg64 },
 	// TODO: get all of `AsmInstr` variants in here.
 }
 
@@ -58,11 +65,11 @@ impl X8664Instr {
 				let opcode = Opcode::from_opcode_and_reg(opcode_without_reg, reg.id_lower_u3());
 				let rex =
 					RexPrefix::new(Bit::_0, Bit::_0, Bit::_0, reg.id_higher_bit()).keep_if_useful();
-				X8664InstrAsMachineCode { rex, opcode, modrm: None }
+				X8664InstrAsMachineCode { rex, opcode, modrm: None, imm: None }
 			},
 			X8664Instr::XorRegOrMem32ToReg32 { src, dst } => {
 				let opcode = Opcode::from_byte(0x33);
-				let RegOrMem32::Reg32(src) = src;
+				let RegOrMem32::Reg32(src) = src; // deref not implemented yet
 				let modrm = Some(ModRmByte::new(
 					U2::new(0b11),
 					dst.id_lower_u3(),
@@ -70,11 +77,11 @@ impl X8664Instr {
 				));
 				let rex = RexPrefix::new(Bit::_0, dst.id_higher_bit(), Bit::_0, src.id_higher_bit())
 					.keep_if_useful();
-				X8664InstrAsMachineCode { rex, opcode, modrm }
+				X8664InstrAsMachineCode { rex, opcode, modrm, imm: None }
 			},
 			X8664Instr::XorRegOrMem64ToReg64 { src, dst } => {
 				let opcode = Opcode::from_byte(0x33);
-				let RegOrMem64::Reg64(src) = src;
+				let RegOrMem64::Reg64(src) = src; // deref not implemented yet
 				let modrm = Some(ModRmByte::new(
 					U2::new(0b11),
 					dst.id_lower_u3(),
@@ -82,7 +89,15 @@ impl X8664Instr {
 				));
 				let rex = RexPrefix::new(Bit::_1, dst.id_higher_bit(), Bit::_0, src.id_higher_bit())
 					.keep_if_useful();
-				X8664InstrAsMachineCode { rex, opcode, modrm }
+				X8664InstrAsMachineCode { rex, opcode, modrm, imm: None }
+			},
+			X8664Instr::MovImm64ToReg64 { src, dst } => {
+				let opcode_without_reg = 0xb8;
+				let opcode = Opcode::from_opcode_and_reg(opcode_without_reg, dst.id_lower_u3());
+				let imm = Some(ImmBytes::Imm64(src.to_u64()));
+				let rex =
+					RexPrefix::new(Bit::_0, Bit::_0, Bit::_0, dst.id_higher_bit()).keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm: None, imm }
 			},
 		}
 	}
@@ -90,17 +105,19 @@ impl X8664Instr {
 
 impl std::fmt::Display for X8664Instr {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		// Format: `mnemonic size arguments...`
-		// Size is:
+		// Format is `mnemonic arguments...`, like `push reg q %rax`.
+		//
+		// Size indications are:
 		// - `b` for 8 bits (Byte)
 		// - `w` for 16 bits (Word)
 		// - `d` for 32 bits (Double-word)
 		// - `q` for 64 bits (Quad-word)
 		//
-		// Arguments are like `reg: %rax`, `reg/mem: %r11d`
+		// Arguments are like `reg q %rax`, `reg/mem d %r11d`
 		// We mention the operand type (reg, r/m, etc.) as it actually is
 		// for the instruction encoding variant that is actually used;
-		// "mov %rbx -> %rcx" would be ambiguous in which variant is used (r/m -> reg or reg -> r/m).
+		// simply "mov %rbx -> %rcx" would be ambiguous
+		// in which variant is used (r/m -> reg or reg -> r/m).
 		//
 		// We use an arrow `->` to make it clear which operand is the destination,
 		// because im tired of intel syntax vs at&t syntax so here is an actually clear syntax instead.
@@ -109,16 +126,20 @@ impl std::fmt::Display for X8664Instr {
 		// by `zx` or `sx` respectively.
 		// If writing to a 32 bits register actually writes to the corresponding 64 bits register
 		// with zero-extension or sign-extension it is written with the name of the 64 bits register
-		// like `... -> reg: %eax zx %rax`.
+		// like `... -> reg d %eax zx q %rax`.
 		match self {
-			X8664Instr::PushReg64(reg) => write!(f, "push q reg: {reg}"),
-			X8664Instr::PopReg64(reg) => write!(f, "pop q reg: {reg}"),
+			X8664Instr::PushReg64(reg) => write!(f, "push reg q {reg}"),
+			X8664Instr::PopReg64(reg) => write!(f, "pop reg q {reg}"),
 			X8664Instr::XorRegOrMem32ToReg32 { src, dst } => {
 				let dst64 = dst.to_64_bits();
-				write!(f, "xor d reg/mem: {src} -> reg: {dst} zx {dst64}")
+				write!(f, "xor reg/mem d {src} -> reg d {dst} zx q {dst64}")
 			},
 			X8664Instr::XorRegOrMem64ToReg64 { src, dst } => {
-				write!(f, "xor q reg/mem: {src} -> reg: {dst}")
+				write!(f, "xor reg/mem q {src} -> reg q {dst}")
+			},
+			X8664Instr::MovImm64ToReg64 { src, dst } => {
+				let src_u64 = src.to_u64();
+				write!(f, "mov imm q {src_u64:#x} -> reg q {dst}")
 			},
 		}
 	}
@@ -289,10 +310,28 @@ impl Opcode {
 	}
 }
 
+#[derive(Clone, Copy)]
+enum ImmBytes {
+	Imm64(u64),
+	Imm32(u32),
+	Imm8(u8),
+}
+
+impl ImmBytes {
+	fn to_bytes(self) -> Vec<u8> {
+		match self {
+			ImmBytes::Imm64(value) => Vec::from(value.to_le_bytes()),
+			ImmBytes::Imm32(value) => Vec::from(value.to_le_bytes()),
+			ImmBytes::Imm8(value) => Vec::from(value.to_le_bytes()),
+		}
+	}
+}
+
 struct X8664InstrAsMachineCode {
 	rex: Option<RexPrefix>,
 	opcode: Opcode,
 	modrm: Option<ModRmByte>,
+	imm: Option<ImmBytes>,
 }
 
 impl X8664InstrAsMachineCode {
@@ -304,6 +343,9 @@ impl X8664InstrAsMachineCode {
 		binary.push(self.opcode.to_byte());
 		if let Some(modrm) = self.modrm {
 			binary.push(modrm.to_byte());
+		}
+		if let Some(imm) = self.imm {
+			binary.append(&mut imm.to_bytes());
 		}
 		binary
 	}
