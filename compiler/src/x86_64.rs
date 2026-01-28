@@ -3,7 +3,7 @@ use crate::{
 		Reg32, Reg64, RegOrMem32, RegOrMem64, separate_bit_b_in_bxxx,
 		small_uints::{Bit, U2, U3, U4},
 	},
-	imm::{Imm64, Raw64},
+	imm::{ImmRich64, Value64},
 	x86_64::{modrm_byte::ModRmByte, opcode_with_reg::OpcodeWithU3Reg, rex_prefix::RexPrefix},
 };
 
@@ -49,7 +49,7 @@ enum X8664Instr {
 	/// - Opcode: `REX.W + B8+ rd io`
 	///
 	/// Sets the register to the immediate value.
-	MovImm64ToReg64 { src: Raw64, dst: Reg64 },
+	MovImm64ToReg64 { src: Imm, dst: Reg64 },
 	// TODO: get all of `AsmInstr` variants in here.
 }
 
@@ -94,7 +94,7 @@ impl X8664Instr {
 			X8664Instr::MovImm64ToReg64 { src, dst } => {
 				let opcode_without_reg = 0xb8;
 				let opcode = Opcode::from_opcode_and_reg(opcode_without_reg, dst.id_lower_u3());
-				let imm = Some(ImmBytes::Imm64(src.to_u64()));
+				let imm = Some(*src);
 				let rex =
 					RexPrefix::new(Bit::_0, Bit::_0, Bit::_0, dst.id_higher_bit()).keep_if_useful();
 				X8664InstrAsMachineCode { rex, opcode, modrm: None, imm }
@@ -139,7 +139,7 @@ impl std::fmt::Display for X8664Instr {
 			},
 			X8664Instr::MovImm64ToReg64 { src, dst } => {
 				let src_u64 = src.to_u64();
-				write!(f, "mov imm q {src_u64:#x} -> reg q {dst}")
+				write!(f, "mov imm q {src_u64:#016x} -> reg q {dst}")
 			},
 		}
 	}
@@ -310,19 +310,29 @@ impl Opcode {
 	}
 }
 
+/// An immediate value that is stripped of all details regarding its origin, no sign no nothing,
+/// just the final value whose size and bytes are all we know and that will end up as-is in the binary.
 #[derive(Clone, Copy)]
-enum ImmBytes {
+enum Imm {
 	Imm64(u64),
 	Imm32(u32),
 	Imm8(u8),
 }
 
-impl ImmBytes {
+impl Imm {
 	fn to_bytes(self) -> Vec<u8> {
 		match self {
-			ImmBytes::Imm64(value) => Vec::from(value.to_le_bytes()),
-			ImmBytes::Imm32(value) => Vec::from(value.to_le_bytes()),
-			ImmBytes::Imm8(value) => Vec::from(value.to_le_bytes()),
+			Imm::Imm64(value) => Vec::from(value.to_le_bytes()),
+			Imm::Imm32(value) => Vec::from(value.to_le_bytes()),
+			Imm::Imm8(value) => Vec::from(value.to_le_bytes()),
+		}
+	}
+
+	fn to_u64(self) -> u64 {
+		match self {
+			Imm::Imm64(value) => value,
+			Imm::Imm32(value) => value as u64,
+			Imm::Imm8(value) => value as u64,
 		}
 	}
 }
@@ -331,7 +341,7 @@ struct X8664InstrAsMachineCode {
 	rex: Option<RexPrefix>,
 	opcode: Opcode,
 	modrm: Option<ModRmByte>,
-	imm: Option<ImmBytes>,
+	imm: Option<Imm>,
 }
 
 impl X8664InstrAsMachineCode {

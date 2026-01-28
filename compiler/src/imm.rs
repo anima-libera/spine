@@ -11,22 +11,22 @@
 use crate::elf::Layout;
 
 #[derive(Clone, Copy)]
-pub(crate) enum Raw8 {
+pub(crate) enum Value8 {
 	Signed(i8),
 	Unsigned(u8),
 }
 #[derive(Clone, Copy)]
-pub(crate) enum Raw32 {
+pub(crate) enum Value32 {
 	Signed(i32),
 	Unsigned(u32),
 }
 #[derive(Clone, Copy)]
-pub(crate) enum Raw64 {
+pub(crate) enum Value64 {
 	Signed(i64),
 	Unsigned(u64),
 }
 
-macro_rules! impl_raw_is_signed {
+macro_rules! impl_value_is_signed {
 	($raw_n:ty) => {
 		impl $raw_n {
 			pub(crate) fn is_signed(self) -> bool {
@@ -38,11 +38,11 @@ macro_rules! impl_raw_is_signed {
 		}
 	};
 }
-impl_raw_is_signed!(Raw8);
-impl_raw_is_signed!(Raw32);
-impl_raw_is_signed!(Raw64);
+impl_value_is_signed!(Value8);
+impl_value_is_signed!(Value32);
+impl_value_is_signed!(Value64);
 
-macro_rules! impl_raw_is_zero {
+macro_rules! impl_value_is_zero {
 	($raw_n:ty) => {
 		impl $raw_n {
 			pub(crate) fn is_zero(self) -> bool {
@@ -54,11 +54,11 @@ macro_rules! impl_raw_is_zero {
 		}
 	};
 }
-impl_raw_is_zero!(Raw8);
-impl_raw_is_zero!(Raw32);
-impl_raw_is_zero!(Raw64);
+impl_value_is_zero!(Value8);
+impl_value_is_zero!(Value32);
+impl_value_is_zero!(Value64);
 
-macro_rules! impl_raw_to_bytes {
+macro_rules! impl_value_to_bytes {
 	($raw_n:ty, $fn_name:ident, $as_signed:ty, $as_unsigned:ty, $size:literal) => {
 		impl $raw_n {
 			pub(crate) fn $fn_name(self) -> [u8; $size] {
@@ -70,162 +70,164 @@ macro_rules! impl_raw_to_bytes {
 		}
 	};
 }
-impl_raw_to_bytes!(Raw64, to_8_bytes, i64, u64, 8);
-impl_raw_to_bytes!(Raw32, to_8_bytes, i64, u64, 8);
-impl_raw_to_bytes!(Raw32, to_4_bytes, i32, u32, 4);
-impl_raw_to_bytes!(Raw8, to_8_bytes, i64, u64, 8);
-impl_raw_to_bytes!(Raw8, to_4_bytes, i32, u32, 4);
-impl_raw_to_bytes!(Raw8, to_1_bytes, i8, u8, 1);
+impl_value_to_bytes!(Value64, to_8_bytes, i64, u64, 8);
+impl_value_to_bytes!(Value32, to_8_bytes, i64, u64, 8);
+impl_value_to_bytes!(Value32, to_4_bytes, i32, u32, 4);
+impl_value_to_bytes!(Value8, to_8_bytes, i64, u64, 8);
+impl_value_to_bytes!(Value8, to_4_bytes, i32, u32, 4);
+impl_value_to_bytes!(Value8, to_1_bytes, i8, u8, 1);
 
-impl Raw64 {
+impl Value64 {
 	pub(crate) fn to_u64(self) -> u64 {
 		match self {
-			Raw64::Signed(value) => value.cast_unsigned(),
-			Raw64::Unsigned(value) => value,
+			Value64::Signed(value) => value.cast_unsigned(),
+			Value64::Unsigned(value) => value,
 		}
 	}
 }
-impl Raw32 {
+impl Value32 {
 	pub(crate) fn to_u32(self) -> u32 {
 		match self {
-			Raw32::Signed(value) => value.cast_unsigned(),
-			Raw32::Unsigned(value) => value,
+			Value32::Signed(value) => value.cast_unsigned(),
+			Value32::Unsigned(value) => value,
 		}
 	}
 }
-impl Raw8 {
+impl Value8 {
 	pub(crate) fn to_u8(self) -> u8 {
 		match self {
-			Raw8::Signed(value) => value.cast_unsigned(),
-			Raw8::Unsigned(value) => value,
+			Value8::Signed(value) => value.cast_unsigned(),
+			Value8::Unsigned(value) => value,
 		}
 	}
 }
 
-pub(crate) enum Imm8 {
-	Raw(Raw8),
+pub(crate) enum ImmRich8 {
+	Value(Value8),
 }
 
-impl Imm8 {
-	pub(crate) fn to_raw_8(&self, _layout: &Layout) -> Raw8 {
+impl ImmRich8 {
+	pub(crate) fn to_value_8(&self, _layout: &Layout) -> Value8 {
 		match self {
-			Imm8::Raw(raw) => *raw,
+			ImmRich8::Value(value) => *value,
 		}
 	}
 
 	pub(crate) fn is_signed(&self) -> bool {
-		matches!(self, Imm8::Raw(Raw8::Signed(_)))
+		matches!(self, ImmRich8::Value(Value8::Signed(_)))
 	}
 
-	pub(crate) fn is_raw_zero(&self) -> bool {
-		matches!(self, Imm8::Raw(raw8) if raw8.is_zero())
+	pub(crate) fn is_value_zero(&self) -> bool {
+		matches!(self, ImmRich8::Value(value8) if value8.is_zero())
 	}
 }
 
-pub(crate) enum Imm32 {
+pub(crate) enum ImmRich32 {
 	DataAddr { offset_in_data_segment: u32 },
-	Raw(Raw32),
+	Value(Value32),
 }
 
-impl Imm32 {
-	pub(crate) fn to_raw_32(&self, layout: &Layout) -> Raw32 {
+impl ImmRich32 {
+	pub(crate) fn to_value_32(&self, layout: &Layout) -> Value32 {
 		match self {
-			Imm32::DataAddr { offset_in_data_segment } => {
-				Raw32::Unsigned(layout.data_segment_address as u32 + offset_in_data_segment)
+			ImmRich32::DataAddr { offset_in_data_segment } => {
+				Value32::Unsigned(layout.data_segment_address as u32 + offset_in_data_segment)
 			},
-			Imm32::Raw(raw) => *raw,
+			ImmRich32::Value(value) => *value,
 		}
 	}
 
 	pub(crate) fn is_signed(&self) -> bool {
-		matches!(self, Imm32::Raw(Raw32::Signed(_)))
+		matches!(self, ImmRich32::Value(Value32::Signed(_)))
 	}
 
-	pub(crate) fn is_raw_zero(&self) -> bool {
-		matches!(self, Imm32::Raw(raw32) if raw32.is_zero())
+	pub(crate) fn is_value_zero(&self) -> bool {
+		matches!(self, ImmRich32::Value(value32) if value32.is_zero())
 	}
 }
 
-pub(crate) enum Imm64 {
+pub(crate) enum ImmRich64 {
 	DataAddr { offset_in_data_segment: u64 },
-	Raw(Raw64),
+	Value(Value64),
 }
 
-impl Imm64 {
-	pub(crate) fn to_raw_64(&self, layout: &Layout) -> Raw64 {
+impl ImmRich64 {
+	pub(crate) fn to_value_64(&self, layout: &Layout) -> Value64 {
 		match self {
-			Imm64::DataAddr { offset_in_data_segment } => {
-				Raw64::Unsigned(layout.data_segment_address as u64 + offset_in_data_segment)
+			ImmRich64::DataAddr { offset_in_data_segment } => {
+				Value64::Unsigned(layout.data_segment_address as u64 + offset_in_data_segment)
 			},
-			Imm64::Raw(raw) => *raw,
+			ImmRich64::Value(value) => *value,
 		}
 	}
 
 	pub(crate) fn is_signed(&self) -> bool {
-		matches!(self, Imm64::Raw(Raw64::Signed(_)))
+		matches!(self, ImmRich64::Value(Value64::Signed(_)))
 	}
 
-	pub(crate) fn is_raw_zero(&self) -> bool {
-		matches!(self, Imm64::Raw(raw64) if raw64.is_zero())
+	pub(crate) fn is_value_zero(&self) -> bool {
+		matches!(self, ImmRich64::Value(value64) if value64.is_zero())
 	}
 }
 
-pub(crate) enum Imm {
-	Imm8(Imm8),
-	Imm32(Imm32),
-	Imm64(Imm64),
+/// What would become an immediate value, but with more info such as sign (signed/unsigned),
+/// or can be an address to be determined later, etc.
+pub(crate) enum ImmRich {
+	Imm8(ImmRich8),
+	Imm32(ImmRich32),
+	Imm64(ImmRich64),
 }
 
-impl Imm {
-	pub(crate) fn signed_raw(value: i64) -> Imm {
+impl ImmRich {
+	pub(crate) fn signed_value(value: i64) -> ImmRich {
 		if let Ok(value) = value.try_into() {
-			Imm::Imm8(Imm8::Raw(Raw8::Signed(value)))
+			ImmRich::Imm8(ImmRich8::Value(Value8::Signed(value)))
 		} else if let Ok(value) = value.try_into() {
-			Imm::Imm32(Imm32::Raw(Raw32::Signed(value)))
+			ImmRich::Imm32(ImmRich32::Value(Value32::Signed(value)))
 		} else {
-			Imm::Imm64(Imm64::Raw(Raw64::Signed(value)))
+			ImmRich::Imm64(ImmRich64::Value(Value64::Signed(value)))
 		}
 	}
 
-	pub(crate) fn unsigned_raw(value: u64) -> Imm {
+	pub(crate) fn unsigned_value(value: u64) -> ImmRich {
 		if let Ok(value) = value.try_into() {
-			Imm::Imm8(Imm8::Raw(Raw8::Unsigned(value)))
+			ImmRich::Imm8(ImmRich8::Value(Value8::Unsigned(value)))
 		} else if let Ok(value) = value.try_into() {
-			Imm::Imm32(Imm32::Raw(Raw32::Unsigned(value)))
+			ImmRich::Imm32(ImmRich32::Value(Value32::Unsigned(value)))
 		} else {
-			Imm::Imm64(Imm64::Raw(Raw64::Unsigned(value)))
+			ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(value)))
 		}
 	}
 
-	pub(crate) fn whatever_raw(value: i64) -> Imm {
+	pub(crate) fn whatever_value(value: i64) -> ImmRich {
 		if value < 0 {
-			Self::signed_raw(value)
+			Self::signed_value(value)
 		} else {
-			Self::unsigned_raw(value as u64)
+			Self::unsigned_value(value as u64)
 		}
 	}
 
 	pub(crate) fn is_signed(&self) -> bool {
 		match self {
-			Imm::Imm8(imm8) => imm8.is_signed(),
-			Imm::Imm32(imm32) => imm32.is_signed(),
-			Imm::Imm64(imm64) => imm64.is_signed(),
+			ImmRich::Imm8(imm8) => imm8.is_signed(),
+			ImmRich::Imm32(imm32) => imm32.is_signed(),
+			ImmRich::Imm64(imm64) => imm64.is_signed(),
 		}
 	}
 
-	pub(crate) fn is_raw_zero(&self) -> bool {
+	pub(crate) fn is_value_zero(&self) -> bool {
 		match self {
-			Imm::Imm8(imm8) => imm8.is_raw_zero(),
-			Imm::Imm32(imm32) => imm32.is_raw_zero(),
-			Imm::Imm64(imm64) => imm64.is_raw_zero(),
+			ImmRich::Imm8(imm8) => imm8.is_value_zero(),
+			ImmRich::Imm32(imm32) => imm32.is_value_zero(),
+			ImmRich::Imm64(imm64) => imm64.is_value_zero(),
 		}
 	}
 
 	pub(crate) fn to_8_bytes(&self, layout: &Layout) -> [u8; 8] {
 		match self {
-			Imm::Imm8(imm8) => imm8.to_raw_8(layout).to_8_bytes(),
-			Imm::Imm32(imm32) => imm32.to_raw_32(layout).to_8_bytes(),
-			Imm::Imm64(imm64) => imm64.to_raw_64(layout).to_8_bytes(),
+			ImmRich::Imm8(imm8) => imm8.to_value_8(layout).to_8_bytes(),
+			ImmRich::Imm32(imm32) => imm32.to_value_32(layout).to_8_bytes(),
+			ImmRich::Imm64(imm64) => imm64.to_value_64(layout).to_8_bytes(),
 		}
 	}
 }

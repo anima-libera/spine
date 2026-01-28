@@ -1,7 +1,7 @@
 use crate::{
 	asm::small_uints::{Bit, U2, U3, U4},
 	elf::Layout,
-	imm::Imm,
+	imm::ImmRich,
 };
 
 pub(crate) mod small_uints {
@@ -240,7 +240,7 @@ pub(crate) enum AsmInstr {
 	/// Sets the register to the immediate value,
 	/// being careful about the zero/sign extentions when needed.
 	MovImmToReg64 {
-		imm_src: Imm,
+		imm_src: ImmRich,
 		reg_dst: Reg64,
 	},
 	/// Does `dst = *src`, with `src` being interpreted as a pointer to a 8, 32 or 64 bits area.
@@ -314,7 +314,7 @@ impl AsmInstr {
 
 				// If the value is zero, then we just zero the register without the need for
 				// moving an immediate value (that would be zero) after.
-				let only_zero_no_mov = imm_src.is_raw_zero();
+				let only_zero_no_mov = imm_src.is_value_zero();
 
 				// If the value is not zero, then we use some variant of MOV that corresponds
 				// to what the config says, there is even a case where we prepend a XOR instruction
@@ -481,7 +481,7 @@ impl AsmInstr {
 				let (reg_dst_id_high_bit, _reg_dst_id_low_3_bits) =
 					separate_bit_b_in_bxxx(reg_dst.id());
 				let need_rex_r_bit = reg_dst_id_high_bit == Bit::_1;
-				if imm_src.is_raw_zero() {
+				if imm_src.is_value_zero() {
 					// `XOR r32, r/m32`
 					2 + if need_rex_r_bit { 1 } else { 0 }
 				} else {
@@ -536,9 +536,9 @@ struct ConfigForMovImmToReg64 {
 	zero_before_and_8: bool,
 }
 impl ConfigForMovImmToReg64 {
-	fn get(imm_src: &Imm, reg_dst: &Reg64) -> Self {
+	fn get(imm_src: &ImmRich, reg_dst: &Reg64) -> Self {
 		match imm_src {
-			Imm::Imm64(imm64) => {
+			ImmRich::Imm64(imm64) => {
 				// `MOV r64, imm64`
 				Self {
 					rex_w: Bit::_1,
@@ -547,7 +547,7 @@ impl ConfigForMovImmToReg64 {
 					zero_before_and_8: false,
 				}
 			},
-			Imm::Imm32(imm32) => {
+			ImmRich::Imm32(imm32) => {
 				if imm32.is_signed() {
 					// `MOV r/m64, imm32`, this sign extends the value
 					Self {
@@ -566,7 +566,7 @@ impl ConfigForMovImmToReg64 {
 					}
 				}
 			},
-			Imm::Imm8(imm8) => {
+			ImmRich::Imm8(imm8) => {
 				if imm8.is_signed() {
 					// `MOV r/m64, imm32`, this sign extends the value
 					//

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::asm::{AsmInstr, BaseSign, BaseSize, Reg64};
 use crate::elf::{Binary, chmod_x};
-use crate::imm::{Imm, Imm8, Imm32, Imm64, Raw8, Raw32, Raw64};
+use crate::imm::{ImmRich, ImmRich8, ImmRich32, ImmRich64, Value8, Value32, Value64};
 
 #[test]
 fn some_assembly_instructions() {
@@ -20,19 +20,19 @@ fn some_assembly_instructions() {
 	bin.asm_instrs = vec![
 		// Kinda do *(uint8_t*)message = (-1)+(*(uint8_t*)value); so we sould see "mewwo :3"
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::DataAddr {
+			imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
 				offset_in_data_segment: value_offset_in_data as u64,
 			}),
 			reg_dst: Reg64::Rax,
 		},
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::DataAddr {
+			imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
 				offset_in_data_segment: message_offset_in_data as u64,
 			}),
 			reg_dst: Reg64::Rbx,
 		},
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Signed(-1))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Signed(-1))),
 			reg_dst: Reg64::Rcx,
 		},
 		MovDerefReg64ToReg64 {
@@ -49,31 +49,31 @@ fn some_assembly_instructions() {
 		},
 		// Write(message) syscall
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(1))),
 			reg_dst: Reg64::Rax,
 		},
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(1))),
 			reg_dst: Reg64::Rdi,
 		},
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::DataAddr {
+			imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
 				offset_in_data_segment: message_offset_in_data as u64,
 			}),
 			reg_dst: Reg64::Rsi,
 		},
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(message.len() as u64))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(message.len() as u64))),
 			reg_dst: Reg64::Rdx,
 		},
 		Syscall,
 		// Exit(0) syscall
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(60))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(60))),
 			reg_dst: Reg64::Rax,
 		},
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(0))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(0))),
 			reg_dst: Reg64::Rdi,
 		},
 		Syscall,
@@ -81,21 +81,21 @@ fn some_assembly_instructions() {
 		Label { name: "loop_xd".to_string() },
 		// Write(message) syscall
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(1))),
 			reg_dst: Reg64::Rax,
 		},
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(1))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(1))),
 			reg_dst: Reg64::Rdi,
 		},
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::DataAddr {
+			imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
 				offset_in_data_segment: message_offset_in_data as u64,
 			}),
 			reg_dst: Reg64::Rsi,
 		},
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(message.len() as u64))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(message.len() as u64))),
 			reg_dst: Reg64::Rdx,
 		},
 		Syscall,
@@ -103,11 +103,11 @@ fn some_assembly_instructions() {
 		JumpToLabel { label_name: "loop_xd".to_string() },
 		// Exit(0) syscall
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(60))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(60))),
 			reg_dst: Reg64::Rax,
 		},
 		MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(0))),
+			imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(0))),
 			reg_dst: Reg64::Rdi,
 		},
 		Syscall,
@@ -160,27 +160,33 @@ fn mov_imm_to_reg64_all_variants() {
 	// We try all the `MovImmToReg64`s that we can think of.
 	for reg in regs_to_test.iter().copied() {
 		bin.asm_instrs.extend([
-			MovImmToReg64 { imm_src: Imm::Imm8(Imm8::Raw(Raw8::Signed(-5))), reg_dst: reg },
-			PushReg64 { reg_src: reg },
-			MovImmToReg64 { imm_src: Imm::Imm8(Imm8::Raw(Raw8::Unsigned(5))), reg_dst: reg },
-			PushReg64 { reg_src: reg },
 			MovImmToReg64 {
-				imm_src: Imm::Imm32(Imm32::Raw(Raw32::Signed(-555555))),
+				imm_src: ImmRich::Imm8(ImmRich8::Value(Value8::Signed(-5))),
 				reg_dst: reg,
 			},
 			PushReg64 { reg_src: reg },
 			MovImmToReg64 {
-				imm_src: Imm::Imm32(Imm32::Raw(Raw32::Unsigned(555555))),
+				imm_src: ImmRich::Imm8(ImmRich8::Value(Value8::Unsigned(5))),
 				reg_dst: reg,
 			},
 			PushReg64 { reg_src: reg },
 			MovImmToReg64 {
-				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Signed(-555555555555))),
+				imm_src: ImmRich::Imm32(ImmRich32::Value(Value32::Signed(-555555))),
 				reg_dst: reg,
 			},
 			PushReg64 { reg_src: reg },
 			MovImmToReg64 {
-				imm_src: Imm::Imm64(Imm64::Raw(Raw64::Unsigned(555555555555))),
+				imm_src: ImmRich::Imm32(ImmRich32::Value(Value32::Unsigned(555555))),
+				reg_dst: reg,
+			},
+			PushReg64 { reg_src: reg },
+			MovImmToReg64 {
+				imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Signed(-555555555555))),
+				reg_dst: reg,
+			},
+			PushReg64 { reg_src: reg },
+			MovImmToReg64 {
+				imm_src: ImmRich::Imm64(ImmRich64::Value(Value64::Unsigned(555555555555))),
 				reg_dst: reg,
 			},
 			PushReg64 { reg_src: reg },
@@ -192,27 +198,27 @@ fn mov_imm_to_reg64_all_variants() {
 	bin.asm_instrs.extend([
 		// Write syscall
 		MovImmToReg64 {
-			imm_src: Imm::whatever_raw(1),
+			imm_src: ImmRich::whatever_value(1),
 			reg_dst: Reg64::Rax, // Syscall number
 		},
 		MovImmToReg64 {
-			imm_src: Imm::whatever_raw(2),
+			imm_src: ImmRich::whatever_value(2),
 			reg_dst: Reg64::Rdi, // File descriptor
 		},
 		PushReg64 { reg_src: Reg64::Rsp },
 		PopToReg64 { reg_dst: Reg64::Rsi }, // String address
 		MovImmToReg64 {
-			imm_src: Imm::unsigned_raw(6 * 8 * (regs_to_test.len() as u64)),
+			imm_src: ImmRich::unsigned_value(6 * 8 * (regs_to_test.len() as u64)),
 			reg_dst: Reg64::Rdx, // String length
 		},
 		Syscall,
 		// Exit syscall
 		MovImmToReg64 {
-			imm_src: Imm::whatever_raw(60),
+			imm_src: ImmRich::whatever_value(60),
 			reg_dst: Reg64::Rax, // Syscall number
 		},
 		MovImmToReg64 {
-			imm_src: Imm::unsigned_raw(0),
+			imm_src: ImmRich::unsigned_value(0),
 			reg_dst: Reg64::Rdi, // Exit code, 0 means all good
 		},
 		Syscall,
@@ -301,7 +307,7 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 	// We try all the `MovDerefReg64ToReg64`s that we can think of.
 	for src_reg in regs_to_test.iter().copied() {
 		bin.asm_instrs.extend([MovImmToReg64 {
-			imm_src: Imm::Imm64(Imm64::DataAddr {
+			imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
 				offset_in_data_segment: value_offset_in_data as u64,
 			}),
 			reg_dst: src_reg,
@@ -366,27 +372,27 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 	bin.asm_instrs.extend([
 		// Write syscall
 		MovImmToReg64 {
-			imm_src: Imm::whatever_raw(1),
+			imm_src: ImmRich::whatever_value(1),
 			reg_dst: Reg64::Rax, // Syscall number
 		},
 		MovImmToReg64 {
-			imm_src: Imm::whatever_raw(2),
+			imm_src: ImmRich::whatever_value(2),
 			reg_dst: Reg64::Rdi, // File descriptor
 		},
 		PushReg64 { reg_src: Reg64::Rsp },
 		PopToReg64 { reg_dst: Reg64::Rsi }, // String address
 		MovImmToReg64 {
-			imm_src: Imm::unsigned_raw(6 * 8 * (number_of_tests as u64)),
+			imm_src: ImmRich::unsigned_value(6 * 8 * (number_of_tests as u64)),
 			reg_dst: Reg64::Rdx, // String length
 		},
 		Syscall,
 		// Exit syscall
 		MovImmToReg64 {
-			imm_src: Imm::whatever_raw(60),
+			imm_src: ImmRich::whatever_value(60),
 			reg_dst: Reg64::Rax, // Syscall number
 		},
 		MovImmToReg64 {
-			imm_src: Imm::unsigned_raw(0),
+			imm_src: ImmRich::unsigned_value(0),
 			reg_dst: Reg64::Rdi, // Exit code, 0 means all good
 		},
 		Syscall,

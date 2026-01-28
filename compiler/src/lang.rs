@@ -19,7 +19,7 @@ use crate::err::{
 	IntegerLiteralValueOutOfRange, StringLiteralMissingClosingQuote, UnexpectedCharacter,
 	UnknownRadixPrefixLetter,
 };
-use crate::imm::{Imm, Imm64};
+use crate::imm::{ImmRich, ImmRich64};
 use crate::src::{Pos, Reader, SourceCode, Span};
 
 #[derive(Debug, Clone)]
@@ -1464,7 +1464,10 @@ pub fn compile_to_binary(program: &LowProgram) -> Binary {
 					match instr {
 						LowInstr::PushConst(SpineValue::I64(value)) => {
 							bin.asm_instrs.extend([
-								MovImmToReg64 { imm_src: Imm::whatever_raw(*value), reg_dst: Reg64::Rax },
+								MovImmToReg64 {
+									imm_src: ImmRich::whatever_value(*value),
+									reg_dst: Reg64::Rax,
+								},
 								PushReg64 { reg_src: Reg64::Rax },
 							]);
 						},
@@ -1477,12 +1480,12 @@ pub fn compile_to_binary(program: &LowProgram) -> Binary {
 							bin.data_bytes.extend(string.as_bytes());
 							bin.asm_instrs.extend([
 								MovImmToReg64 {
-									imm_src: Imm::Imm64(Imm64::DataAddr { offset_in_data_segment }),
+									imm_src: ImmRich::Imm64(ImmRich64::DataAddr { offset_in_data_segment }),
 									reg_dst: Reg64::Rax,
 								},
 								PushReg64 { reg_src: Reg64::Rax },
 								MovImmToReg64 {
-									imm_src: Imm::whatever_raw(string_len_in_bytes),
+									imm_src: ImmRich::whatever_value(string_len_in_bytes),
 									reg_dst: Reg64::Rax,
 								},
 								PushReg64 { reg_src: Reg64::Rax },
@@ -1492,17 +1495,17 @@ pub fn compile_to_binary(program: &LowProgram) -> Binary {
 							bin.asm_instrs.extend([
 								// Write(message) syscall
 								MovImmToReg64 {
-									imm_src: Imm::whatever_raw(1),
+									imm_src: ImmRich::whatever_value(1),
 									reg_dst: Reg64::Rax, // Syscall number
 								},
 								MovImmToReg64 {
-									imm_src: Imm::whatever_raw(1),
+									imm_src: ImmRich::whatever_value(1),
 									reg_dst: Reg64::Rdi, // File descriptor
 								},
 								PushReg64 { reg_src: Reg64::Rsp },
 								PopToReg64 { reg_dst: Reg64::Rsi }, // String address
 								MovImmToReg64 {
-									imm_src: Imm::whatever_raw(1),
+									imm_src: ImmRich::whatever_value(1),
 									reg_dst: Reg64::Rdx, // String length
 								},
 								Syscall,
@@ -1514,11 +1517,11 @@ pub fn compile_to_binary(program: &LowProgram) -> Binary {
 							bin.asm_instrs.extend([
 								// Write(message) syscall
 								MovImmToReg64 {
-									imm_src: Imm::whatever_raw(1),
+									imm_src: ImmRich::whatever_value(1),
 									reg_dst: Reg64::Rax, // Syscall number
 								},
 								MovImmToReg64 {
-									imm_src: Imm::whatever_raw(1),
+									imm_src: ImmRich::whatever_value(1),
 									reg_dst: Reg64::Rdi, // File descriptor
 								},
 								PopToReg64 { reg_dst: Reg64::Rdx }, // String length
@@ -1538,11 +1541,11 @@ pub fn compile_to_binary(program: &LowProgram) -> Binary {
 							bin.asm_instrs.extend([
 								// Exit(0) syscall
 								MovImmToReg64 {
-									imm_src: Imm::whatever_raw(60),
+									imm_src: ImmRich::whatever_value(60),
 									reg_dst: Reg64::Rax, // Syscall number
 								},
 								MovImmToReg64 {
-									imm_src: Imm::whatever_raw(0),
+									imm_src: ImmRich::whatever_value(0),
 									reg_dst: Reg64::Rdi, // Exit code, 0 means all good
 								},
 								Syscall,
