@@ -1,7 +1,7 @@
 use crate::{
 	asm::small_uints::{Bit, U2, U3, U4},
 	elf::Layout,
-	imm::ImmRich,
+	imm::{ImmRich, ImmRich32},
 };
 
 pub(crate) mod small_uints {
@@ -309,6 +309,22 @@ impl std::fmt::Display for RegOrMem8 {
 			Self::Reg8(reg) => write!(f, "{reg}"),
 			Self::DerefReg8(reg) => write!(f, "[{reg}]"),
 		}
+	}
+}
+
+/// Immediate relative offset for `JMP rel32` instruction.
+#[derive(Clone, Copy)]
+pub(crate) struct Rel32(i32);
+
+impl Rel32 {
+	pub(crate) fn to_u32(self) -> u32 {
+		self.0.cast_unsigned()
+	}
+}
+
+impl std::fmt::Display for Rel32 {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{:+}", self.0)
 	}
 }
 

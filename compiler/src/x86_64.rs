@@ -1,6 +1,6 @@
 use crate::{
 	asm::{
-		Reg8, Reg32, Reg64, RegOrMem8, RegOrMem32, RegOrMem64, separate_bit_b_in_bxxx,
+		Reg8, Reg32, Reg64, RegOrMem8, RegOrMem32, RegOrMem64, Rel32, separate_bit_b_in_bxxx,
 		small_uints::{Bit, U2, U3, U4},
 	},
 	imm::{ImmRich64, Value64},
@@ -34,15 +34,16 @@ enum X8664Instr {
 	/// - Variant: `XOR r32, r/m32` (dst, src)
 	/// - Opcode: `33 /r`
 	/// - What-extended: **zero-extended** (if destination is a register)
+	/// - Touches flags.
 	/// - Can be used to zero a 64 bits register since it zero-extends the destination register.
 	///
-	/// Does a bitwise xor of the 32 bits arguments and writes it in the 32 bits destination register/area.
-	/// If the destination is a 32 bits register then the result is
-	/// zero-extended in the encompassing 64 bits register.
+	/// Does a bitwise xor of the 32 bits arguments and writes it in the 32 bits destination register,
+	/// zero-extending the result in the encompassing 64 bits register.
 	XorRegOrMem32ToReg32 { src: RegOrMem32, dst: Reg32 },
 	/// - Mnemonic: `XOR`
 	/// - Variant: `XOR r64, r/m64` (dst, src)
 	/// - Opcode: `REX.W + 33 /r`
+	/// - Touches flags.
 	///
 	/// Does a bitwise xor of the arguments and writes it in the destination register.
 	XorRegOrMem64ToReg64 { src: RegOrMem64, dst: Reg64 },
@@ -126,19 +127,52 @@ enum X8664Instr {
 	///
 	/// Sets the 8 bits destination register/area to the value of the source 8 bits register.
 	MovReg8ToRegOrMem8 { src: Reg8, dst: RegOrMem8 },
-	// TODO: get all of `AsmInstr` variants in here.
+	/// - Mnemonic: `ADD`
+	/// - Variant: `ADD r/m64, r64`
+	/// - Opcode: `REX.W + 01 /r`
+	/// - Touches flags.
+	///
+	/// Does the addition of the 64 bits arguments and writes it in the destination 64 bits register/area.
+	AddReg64ToRegOrMem64 { src: Reg64, dst: RegOrMem64 },
+	/// - Mnemonic: `SYSCALL`
+	/// - Variant: `SYSCALL`
+	/// - Opcode: `0F 05`
+	///
+	/// Does a syscall!
+	/// Syscall number is in RAX.
+	/// Arguments are passed via registers in that order: RDI, RSI, RDX, R10, R8, R9.
+	/// The return value is in RAX,
+	/// the second return value (only used by the pipe syscall on some architectures) is in RDX.
+	/// The only registers that are modified are RCX, R11, RAX, and in a niche case RDX.
+	Syscall,
+	/// - Mnemonic: `UD2` or `UD`
+	/// - Variant: `UD2`
+	/// - Opcode: `0F 0B`
+	///
+	/// "Undefined Instruction", raises an "invalid opcode" exception.
+	Ud2,
+	/// - Mnemonic: `JMP`
+	/// - Variant: `JMP rel32`
+	/// - Opcode: `E9 cd`
+	///
+	/// Jumps to code at the address that is
+	/// the address of the following instruction added to the signed 32 bits immediate offset.
+	JmpRel32(Rel32),
 }
 
 impl X8664Instr {
 	fn to_machine_code(&self) -> X8664InstrAsMachineCode {
 		match self {
-			X8664Instr::PushReg64(reg) | X8664Instr::PopReg64(reg) => {
+			X8664Instr::PushReg64(reg) => {
 				let rex_w = Bit::_0;
-				let opcode_without_reg = match self {
-					X8664Instr::PushReg64(_) => 0x50,
-					X8664Instr::PopReg64(_) => 0x58,
-					_ => unreachable!(),
-				};
+				let opcode_without_reg = 0x50;
+				let opcode = Opcode::from_opcode_and_reg(opcode_without_reg, reg.id_lower_u3());
+				let rex = RexPrefix::new(rex_w, Bit::_0, Bit::_0, reg.id_higher_bit()).keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm: None, imm: None }
+			},
+			X8664Instr::PopReg64(reg) => {
+				let rex_w = Bit::_0;
+				let opcode_without_reg = 0x58;
 				let opcode = Opcode::from_opcode_and_reg(opcode_without_reg, reg.id_lower_u3());
 				let rex = RexPrefix::new(rex_w, Bit::_0, Bit::_0, reg.id_higher_bit()).keep_if_useful();
 				X8664InstrAsMachineCode { rex, opcode, modrm: None, imm: None }
@@ -371,6 +405,34 @@ impl X8664Instr {
 					.keep_if_useful();
 				X8664InstrAsMachineCode { rex, opcode, modrm, imm: None }
 			},
+			X8664Instr::AddReg64ToRegOrMem64 { src, dst } => {
+				let rex_w = Bit::_1;
+				let opcode = Opcode::from_byte(0x01);
+				let RegOrMem64::Reg64(dst) = dst else {
+					unimplemented!("deref not implemented yet here");
+				};
+				let modrm = Some(ModRmByte::new(
+					U2::new(0b11),
+					src.id_lower_u3(),
+					dst.id_lower_u3(),
+				));
+				let rex = RexPrefix::new(rex_w, src.id_higher_bit(), Bit::_0, dst.id_higher_bit())
+					.keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm, imm: None }
+			},
+			X8664Instr::Syscall => {
+				let opcode = Opcode::from_two_bytes([0x0f, 0x05]);
+				X8664InstrAsMachineCode { rex: None, opcode, modrm: None, imm: None }
+			},
+			X8664Instr::Ud2 => {
+				let opcode = Opcode::from_two_bytes([0x0f, 0x0b]);
+				X8664InstrAsMachineCode { rex: None, opcode, modrm: None, imm: None }
+			},
+			X8664Instr::JmpRel32(offset) => {
+				let opcode = Opcode::from_byte(0xe9);
+				let imm = Some(Imm::Imm32(Imm32(offset.to_u32())));
+				X8664InstrAsMachineCode { rex: None, opcode, modrm: None, imm: None }
+			},
 		}
 	}
 }
@@ -413,20 +475,20 @@ impl std::fmt::Display for X8664Instr {
 			},
 			X8664Instr::MovImm64ToReg64 { src, dst } => {
 				let src_value = src.0;
-				write!(f, "mov imm q {src_value:#016x} -> reg q {dst}")
+				write!(f, "mov imm q {src_value} -> reg q {dst}")
 			},
 			X8664Instr::MovImm32ToReg32 { src, dst } => {
 				let src_value = src.0;
 				let dst64 = dst.to_64_bits();
-				write!(f, "mov imm d {src_value:#08x} -> reg d {dst} zx q {dst64}")
+				write!(f, "mov imm d {src_value} -> reg d {dst} zx q {dst64}")
 			},
 			X8664Instr::MovImm8ToReg8 { src, dst } => {
 				let src_value = src.0;
-				write!(f, "mov imm b {src_value:#02x} -> reg b {dst}")
+				write!(f, "mov imm b {src_value} -> reg b {dst}")
 			},
 			X8664Instr::MovImm32ToRegOrMem64 { src, dst } => {
 				let src_value = src.0;
-				write!(f, "mov imm d {src_value:#08x} sx q -> reg/mem q {dst}")
+				write!(f, "mov imm d {src_value} sx q -> reg/mem q {dst}")
 			},
 			X8664Instr::MovRegOrMem64ToReg64 { src, dst } => {
 				write!(f, "mov reg/mem q {src} -> reg q {dst}")
@@ -453,6 +515,12 @@ impl std::fmt::Display for X8664Instr {
 			X8664Instr::MovReg8ToRegOrMem8 { src, dst } => {
 				write!(f, "mov reg b {src} -> reg/mem b {dst}")
 			},
+			X8664Instr::AddReg64ToRegOrMem64 { src, dst } => {
+				write!(f, "add reg q {src} -> reg/mem q {dst}")
+			},
+			X8664Instr::Syscall => write!(f, "syscall"),
+			X8664Instr::Ud2 => write!(f, "ud2"),
+			X8664Instr::JmpRel32(offset) => write!(f, "jmp rel d {offset}"),
 		}
 	}
 }
@@ -677,6 +745,22 @@ impl Imm32 {
 impl Imm8 {
 	fn to_bytes(self) -> Vec<u8> {
 		Vec::from(self.0.to_le_bytes())
+	}
+}
+
+impl std::fmt::Display for Imm64 {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{:#016x}", self.0)
+	}
+}
+impl std::fmt::Display for Imm32 {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{:#08x}", self.0)
+	}
+}
+impl std::fmt::Display for Imm8 {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{:#02x}", self.0)
 	}
 }
 
