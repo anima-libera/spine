@@ -262,7 +262,10 @@ impl std::fmt::Display for Reg8 {
 }
 
 pub(crate) enum RegOrMem64 {
+	/// Access the register.
 	Reg64(Reg64),
+	/// Access memory for which the address is the value contained in the register.
+	DerefReg64(Reg64),
 	// TODO
 }
 
@@ -270,12 +273,16 @@ impl std::fmt::Display for RegOrMem64 {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Reg64(reg) => write!(f, "{reg}"),
+			Self::DerefReg64(reg) => write!(f, "[{reg}]"),
 		}
 	}
 }
 
 pub(crate) enum RegOrMem32 {
+	/// Access the register.
 	Reg32(Reg32),
+	/// Access memory for which the address is the value contained in the register.
+	DerefReg32(Reg32),
 	// TODO
 }
 
@@ -283,6 +290,24 @@ impl std::fmt::Display for RegOrMem32 {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Reg32(reg) => write!(f, "{reg}"),
+			Self::DerefReg32(reg) => write!(f, "[{reg}]"),
+		}
+	}
+}
+
+pub(crate) enum RegOrMem8 {
+	/// Access the register.
+	Reg8(Reg8),
+	/// Access memory for which the address is the value contained in the register.
+	DerefReg8(Reg8),
+	// TODO
+}
+
+impl std::fmt::Display for RegOrMem8 {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Reg8(reg) => write!(f, "{reg}"),
+			Self::DerefReg8(reg) => write!(f, "[{reg}]"),
 		}
 	}
 }

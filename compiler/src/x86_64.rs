@@ -1,6 +1,6 @@
 use crate::{
 	asm::{
-		Reg8, Reg32, Reg64, RegOrMem32, RegOrMem64, separate_bit_b_in_bxxx,
+		Reg8, Reg32, Reg64, RegOrMem8, RegOrMem32, RegOrMem64, separate_bit_b_in_bxxx,
 		small_uints::{Bit, U2, U3, U4},
 	},
 	imm::{ImmRich64, Value64},
@@ -61,18 +61,53 @@ enum X8664Instr {
 	/// zero-extending the value in the encompassing 64 bits register.
 	MovImm32ToReg32 { src: Imm32, dst: Reg32 },
 	/// - Mnemonic: `MOV`
-	/// - Variant: `MOV r8, imm8`
+	/// - Variant: `MOV r8, imm8` (dst, src)
 	/// - Opcode: `B0+ rb ib`
 	///
 	/// Sets the 8 bits register to the immediate value.
 	MovImm8ToReg8 { src: Imm8, dst: Reg8 },
 	/// - Mnemonic: `MOV`
-	/// - Variant: `MOV r/m64, imm32`
+	/// - Variant: `MOV r/m64, imm32` (dst, src)
 	/// - Opcode: `REX.W + C7 /0 id`
 	/// - What-extended: **sign-extended**
 	///
 	/// Sets the 64 bits register/area to the 32 bits immediate value sign-extended to 64 bits.
 	MovImm32ToRegOrMem64 { src: Imm32, dst: RegOrMem64 },
+	/// - Mnemonic: `MOV`
+	/// - Variant: `MOV r64, r/m64` (dst, src)
+	/// - Opcode: `REX.W + 8B /r`
+	///
+	/// Sets the destination register to the 64 bits value in the source register/area.
+	MovRegOrMem64ToReg64 { src: RegOrMem64, dst: Reg64 },
+	/// - Mnemonic: `MOV`
+	/// - Variant: `MOV r32, r/m32` (dst, src)
+	/// - Opcode: `8B /r`
+	/// - What-extended: **zero-extended**
+	///
+	/// Sets the 32 bits destination register to the 32 bits value in the source register/area,
+	/// zero-extending the value in the encompassing 64 bits destination register.
+	MovRegOrMem32ToReg32 { src: RegOrMem32, dst: Reg32 },
+	/// - Mnemonic: `MOVSXD`
+	/// - Variant: `MOVSXD r64, r/m32`
+	/// - Opcode: `REX.W + 63 /r`
+	/// - What-extended: **sign-extended**
+	///
+	/// Sets the 64 bits destination register to the sign-extended value of the 32 bits source register/area.
+	MovsxdRegOrMem32ToReg64 { src: RegOrMem32, dst: Reg64 },
+	/// - Mnemonic: `MOVSX`
+	/// - Variant: `MOVSX r64, r/m8`
+	/// - Opcode: `REX.W + 0F BE /r`
+	/// - What-extended: **sign-extended**
+	///
+	/// Sets the 64 bits destination register to the sign-extended value of the 8 bits source register/area.
+	MovsxRegOrMem8ToReg64 { src: RegOrMem8, dst: Reg64 },
+	/// - Mnemonic: `MOVZX`
+	/// - Variant: `MOVZX r64, r/m8`
+	/// - Opcode: `REX.W + 0F B6 /r`
+	/// - What-extended: **zero-extended**
+	///
+	/// Sets the 64 bits destination register to the zero-extended value of the 8 bits source register/area.
+	MovzxRegOrMem8ToReg64 { src: RegOrMem8, dst: Reg64 },
 	// TODO: get all of `AsmInstr` variants in here.
 }
 
@@ -93,7 +128,9 @@ impl X8664Instr {
 			X8664Instr::XorRegOrMem32ToReg32 { src, dst } => {
 				let rex_w = Bit::_0;
 				let opcode = Opcode::from_byte(0x33);
-				let RegOrMem32::Reg32(src) = src; // deref not implemented yet
+				let RegOrMem32::Reg32(src) = src else {
+					unimplemented!("deref not implemented yet here");
+				};
 				let modrm = Some(ModRmByte::new(
 					U2::new(0b11),
 					dst.id_lower_u3(),
@@ -106,7 +143,9 @@ impl X8664Instr {
 			X8664Instr::XorRegOrMem64ToReg64 { src, dst } => {
 				let rex_w = Bit::_1;
 				let opcode = Opcode::from_byte(0x33);
-				let RegOrMem64::Reg64(src) = src; // deref not implemented yet
+				let RegOrMem64::Reg64(src) = src else {
+					unimplemented!("deref not implemented yet here");
+				};
 				let modrm = Some(ModRmByte::new(
 					U2::new(0b11),
 					dst.id_lower_u3(),
@@ -150,7 +189,9 @@ impl X8664Instr {
 			X8664Instr::MovImm32ToRegOrMem64 { src, dst } => {
 				let rex_w = Bit::_1;
 				let opcode = Opcode::from_byte(0xc7);
-				let RegOrMem64::Reg64(dst) = dst; // deref not implemented yet
+				let RegOrMem64::Reg64(dst) = dst else {
+					unimplemented!("deref not implemented yet here");
+				};
 				let modrm = Some(ModRmByte::new(
 					U2::new(0b11),
 					U3::new(0), // `/0` in the "opcode" encoding spec
@@ -159,6 +200,101 @@ impl X8664Instr {
 				let imm = Some(Imm::Imm32(*src));
 				let rex = RexPrefix::new(rex_w, Bit::_0, Bit::_0, dst.id_higher_bit()).keep_if_useful();
 				X8664InstrAsMachineCode { rex, opcode, modrm, imm }
+			},
+			X8664Instr::MovRegOrMem64ToReg64 { src, dst } => {
+				let rex_w = Bit::_1;
+				let opcode = Opcode::from_byte(0x8b);
+				let RegOrMem64::DerefReg64(src) = src else {
+					unimplemented!("NON-deref not implemented yet here");
+				};
+				assert!(
+					![Reg64::Rsp, Reg64::Rbp, Reg64::R12, Reg64::R13].contains(src),
+					"RSP,RBP,R12,R13 are not supported yet, ill cook some SIB byte thing with 0 disp or something"
+				);
+				let modrm = Some(ModRmByte::new(
+					U2::new(0b00),
+					dst.id_lower_u3(),
+					src.id_lower_u3(),
+				));
+				let rex = RexPrefix::new(rex_w, dst.id_higher_bit(), Bit::_0, src.id_higher_bit())
+					.keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm, imm: None }
+			},
+			X8664Instr::MovRegOrMem32ToReg32 { src, dst } => {
+				let rex_w = Bit::_1;
+				let opcode = Opcode::from_byte(0x8b);
+				let RegOrMem32::DerefReg32(src) = src else {
+					unimplemented!("NON-deref not implemented yet here");
+				};
+				assert!(
+					![Reg32::Esp, Reg32::Ebp, Reg32::R12d, Reg32::R13d].contains(src),
+					"ESP,EBP,R12D,R13D are not supported yet, ill cook some SIB byte thing with 0 disp or something"
+				);
+				let modrm = Some(ModRmByte::new(
+					U2::new(0b00),
+					dst.id_lower_u3(),
+					src.id_lower_u3(),
+				));
+				let rex = RexPrefix::new(rex_w, dst.id_higher_bit(), Bit::_0, src.id_higher_bit())
+					.keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm, imm: None }
+			},
+			X8664Instr::MovsxdRegOrMem32ToReg64 { src, dst } => {
+				let rex_w = Bit::_1;
+				let opcode = Opcode::from_byte(0x63);
+				let RegOrMem32::DerefReg32(src) = src else {
+					unimplemented!("NON-deref not implemented yet here");
+				};
+				assert!(
+					![Reg32::Esp, Reg32::Ebp, Reg32::R12d, Reg32::R13d].contains(src),
+					"ESP,EBP,R12D,R13D are not supported yet, ill cook some SIB byte thing with 0 disp or something"
+				);
+				let modrm = Some(ModRmByte::new(
+					U2::new(0b00),
+					dst.id_lower_u3(),
+					src.id_lower_u3(),
+				));
+				let rex = RexPrefix::new(rex_w, dst.id_higher_bit(), Bit::_0, src.id_higher_bit())
+					.keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm, imm: None }
+			},
+			X8664Instr::MovsxRegOrMem8ToReg64 { src, dst } => {
+				let rex_w = Bit::_1;
+				let opcode = Opcode::from_two_bytes([0x0f, 0xbe]);
+				let RegOrMem8::DerefReg8(src) = src else {
+					unimplemented!("NON-deref not implemented yet here");
+				};
+				assert!(
+					![Reg8::Spl, Reg8::Bpl, Reg8::R12b, Reg8::R13b].contains(src),
+					"ESP,EBP,R12D,R13D are not supported yet, ill cook some SIB byte thing with 0 disp or something"
+				);
+				let modrm = Some(ModRmByte::new(
+					U2::new(0b00),
+					dst.id_lower_u3(),
+					src.id_lower_u3(),
+				));
+				let rex = RexPrefix::new(rex_w, dst.id_higher_bit(), Bit::_0, src.id_higher_bit())
+					.keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm, imm: None }
+			},
+			X8664Instr::MovzxRegOrMem8ToReg64 { src, dst } => {
+				let rex_w = Bit::_1;
+				let opcode = Opcode::from_two_bytes([0x0f, 0xb6]);
+				let RegOrMem8::DerefReg8(src) = src else {
+					unimplemented!("NON-deref not implemented yet here");
+				};
+				assert!(
+					![Reg8::Spl, Reg8::Bpl, Reg8::R12b, Reg8::R13b].contains(src),
+					"ESP,EBP,R12D,R13D are not supported yet, ill cook some SIB byte thing with 0 disp or something"
+				);
+				let modrm = Some(ModRmByte::new(
+					U2::new(0b00),
+					dst.id_lower_u3(),
+					src.id_lower_u3(),
+				));
+				let rex = RexPrefix::new(rex_w, dst.id_higher_bit(), Bit::_0, src.id_higher_bit())
+					.keep_if_useful();
+				X8664InstrAsMachineCode { rex, opcode, modrm, imm: None }
 			},
 		}
 	}
@@ -216,6 +352,22 @@ impl std::fmt::Display for X8664Instr {
 			X8664Instr::MovImm32ToRegOrMem64 { src, dst } => {
 				let src_value = src.0;
 				write!(f, "mov imm d {src_value:#08x} sx q -> reg/mem q {dst}")
+			},
+			X8664Instr::MovRegOrMem64ToReg64 { src, dst } => {
+				write!(f, "mov reg/mem q {src} -> reg q {dst}")
+			},
+			X8664Instr::MovRegOrMem32ToReg32 { src, dst } => {
+				let dst64 = dst.to_64_bits();
+				write!(f, "mov reg/mem d {src} -> reg d {dst} zx q {dst64}")
+			},
+			X8664Instr::MovsxdRegOrMem32ToReg64 { src, dst } => {
+				write!(f, "movsxd reg/mem d {src} sx q -> reg q {dst}")
+			},
+			X8664Instr::MovsxRegOrMem8ToReg64 { src, dst } => {
+				write!(f, "movsx reg/mem b {src} sx q -> reg q {dst}")
+			},
+			X8664Instr::MovzxRegOrMem8ToReg64 { src, dst } => {
+				write!(f, "movzx reg/mem b {src} zx q -> reg q {dst}")
 			},
 		}
 	}
@@ -381,9 +533,19 @@ mod opcode_with_reg {
 }
 
 #[derive(Clone, Copy)]
+struct OpcodeTwoBytes([u8; 2]);
+
+impl OpcodeTwoBytes {
+	fn to_bytes(self) -> [u8; 2] {
+		self.0
+	}
+}
+
+#[derive(Clone, Copy)]
 enum Opcode {
 	OneByte(OpcodeOneByte),
 	WithU3Reg(OpcodeWithU3Reg),
+	TwoBytes(OpcodeTwoBytes),
 }
 
 impl Opcode {
@@ -398,10 +560,15 @@ impl Opcode {
 		))
 	}
 
-	fn to_byte(self) -> u8 {
+	fn from_two_bytes(opcode_bytes: [u8; 2]) -> Opcode {
+		Opcode::TwoBytes(OpcodeTwoBytes(opcode_bytes))
+	}
+
+	fn to_bytes(self) -> Vec<u8> {
 		match self {
-			Opcode::OneByte(o) => o.to_byte(),
-			Opcode::WithU3Reg(o) => o.to_byte(),
+			Opcode::OneByte(o) => vec![o.to_byte()],
+			Opcode::WithU3Reg(o) => vec![o.to_byte()],
+			Opcode::TwoBytes(o) => Vec::from(o.to_bytes()),
 		}
 	}
 }
@@ -469,7 +636,7 @@ impl X8664InstrAsMachineCode {
 		if let Some(rex) = self.rex {
 			binary.push(rex.to_byte());
 		}
-		binary.push(self.opcode.to_byte());
+		binary.append(&mut self.opcode.to_bytes());
 		if let Some(modrm) = self.modrm {
 			binary.push(modrm.to_byte());
 		}
