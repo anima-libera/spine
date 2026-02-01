@@ -3,7 +3,7 @@ use crate::{
 		Reg8, Reg32, Reg64, RegOrMem8, RegOrMem32, RegOrMem64, Rel32, separate_bit_b_in_bxxx,
 		small_uints::{Bit, U2, U3, U4},
 	},
-	imm::{ImmRich64, Value64},
+	imm::{ImmRich64, Value8, Value32, Value64},
 	x86_64::{modrm_byte::ModRmByte, opcode_with_reg::OpcodeWithU3Reg, rex_prefix::RexPrefix},
 };
 
@@ -12,7 +12,7 @@ use crate::{
 /// It is ready to be encoded in its binary machine code representation,
 /// of a known fixed size,
 /// without additional infirmation (meaning it already has all the info it needs).
-enum X8664Instr {
+pub(crate) enum X8664Instr {
 	/// - Mnemonic: `PUSH`
 	/// - Variant: `PUSH r64`
 	/// - Opcode: `50+rd`
@@ -161,7 +161,7 @@ enum X8664Instr {
 }
 
 impl X8664Instr {
-	fn to_machine_code(&self) -> X8664InstrAsMachineCode {
+	pub(crate) fn to_machine_code(&self) -> X8664InstrAsMachineCode {
 		match self {
 			X8664Instr::PushReg64(reg) => {
 				let rex_w = Bit::_0;
@@ -467,7 +467,7 @@ impl std::fmt::Display for X8664Instr {
 			X8664Instr::PushReg64(reg) => write!(f, "push reg q {reg}"),
 			X8664Instr::PopReg64(reg) => write!(f, "pop reg q {reg}"),
 			X8664Instr::XorRegOrMem32ToReg32 { src, dst } => {
-				let dst64 = dst.to_64_bits();
+				let dst64 = dst.to_64();
 				write!(f, "xor reg/mem d {src} -> reg d {dst} zx q {dst64}")
 			},
 			X8664Instr::XorRegOrMem64ToReg64 { src, dst } => {
@@ -479,7 +479,7 @@ impl std::fmt::Display for X8664Instr {
 			},
 			X8664Instr::MovImm32ToReg32 { src, dst } => {
 				let src_value = src.0;
-				let dst64 = dst.to_64_bits();
+				let dst64 = dst.to_64();
 				write!(f, "mov imm d {src_value} -> reg d {dst} zx q {dst64}")
 			},
 			X8664Instr::MovImm8ToReg8 { src, dst } => {
@@ -494,7 +494,7 @@ impl std::fmt::Display for X8664Instr {
 				write!(f, "mov reg/mem q {src} -> reg q {dst}")
 			},
 			X8664Instr::MovRegOrMem32ToReg32 { src, dst } => {
-				let dst64 = dst.to_64_bits();
+				let dst64 = dst.to_64();
 				write!(f, "mov reg/mem d {src} -> reg d {dst} zx q {dst64}")
 			},
 			X8664Instr::MovsxdRegOrMem32ToReg64 { src, dst } => {
@@ -726,23 +726,32 @@ impl Opcode {
 }
 
 #[derive(Clone, Copy)]
-struct Imm64(u64);
+pub(crate) struct Imm64(u64);
 #[derive(Clone, Copy)]
-struct Imm32(u32);
+pub(crate) struct Imm32(u32);
 #[derive(Clone, Copy)]
-struct Imm8(u8);
+pub(crate) struct Imm8(u8);
 
 impl Imm64 {
+	pub(crate) fn from_value(value: Value64) -> Imm64 {
+		Imm64(value.to_u64())
+	}
 	fn to_bytes(self) -> Vec<u8> {
 		Vec::from(self.0.to_le_bytes())
 	}
 }
 impl Imm32 {
+	pub(crate) fn from_value(value: Value32) -> Imm32 {
+		Imm32(value.to_u32())
+	}
 	fn to_bytes(self) -> Vec<u8> {
 		Vec::from(self.0.to_le_bytes())
 	}
 }
 impl Imm8 {
+	pub(crate) fn from_value(value: Value8) -> Imm8 {
+		Imm8(value.to_u8())
+	}
 	fn to_bytes(self) -> Vec<u8> {
 		Vec::from(self.0.to_le_bytes())
 	}
@@ -767,7 +776,7 @@ impl std::fmt::Display for Imm8 {
 /// An immediate value that is stripped of all details regarding its origin, no sign no nothing,
 /// just the final value whose size and bytes are all we know and that will end up as-is in the binary.
 #[derive(Clone, Copy)]
-enum Imm {
+pub(crate) enum Imm {
 	Imm64(Imm64),
 	Imm32(Imm32),
 	Imm8(Imm8),
@@ -791,7 +800,7 @@ impl Imm {
 	}
 }
 
-struct X8664InstrAsMachineCode {
+pub(crate) struct X8664InstrAsMachineCode {
 	rex: Option<RexPrefix>,
 	opcode: Opcode,
 	modrm: Option<ModRmByte>,
@@ -799,7 +808,7 @@ struct X8664InstrAsMachineCode {
 }
 
 impl X8664InstrAsMachineCode {
-	fn to_binary(&self) -> Vec<u8> {
+	pub(crate) fn to_binary(&self) -> Vec<u8> {
 		let mut binary = vec![];
 		if let Some(rex) = self.rex {
 			binary.push(rex.to_byte());

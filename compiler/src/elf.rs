@@ -103,8 +103,22 @@ impl Binary {
 		let mut instr_address = layout.code_segment_address;
 		let mut machine_code_bytes = Vec::new();
 		for asm_instr in self.asm_instrs.iter() {
-			machine_code_bytes.extend(asm_instr.to_machine_code(&layout, instr_address));
+			let expected_size = asm_instr.machine_code_size();
+			let mut actual_size = 0;
+
+			for mut instr in asm_instr
+				.to_machine_code(&layout, instr_address)
+				.iter()
+				.map(|instr| instr.to_machine_code().to_binary())
+			{
+				actual_size += instr.len();
+				machine_code_bytes.append(&mut instr);
+			}
 			instr_address += asm_instr.machine_code_size();
+
+			if expected_size != actual_size {
+				panic!("machine code size mismatch for instr {:?}", asm_instr);
+			}
 		}
 		machine_code_bytes
 	}

@@ -8,19 +8,22 @@
 // Unless there is a good reason, assembly instruction variants should hold immediate values
 // with the `ImmN` types instead of the `RawN` types or the `uN`/`iN` types.
 
-use crate::elf::Layout;
+use crate::{
+	elf::Layout,
+	x86_64::{Imm, Imm8, Imm32, Imm64},
+};
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum Value8 {
 	Signed(i8),
 	Unsigned(u8),
 }
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum Value32 {
 	Signed(i32),
 	Unsigned(u32),
 }
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum Value64 {
 	Signed(i64),
 	Unsigned(u64),
@@ -102,6 +105,30 @@ impl Value8 {
 	}
 }
 
+impl Value8 {
+	pub(crate) fn to_value_32(self) -> Value32 {
+		match self {
+			Value8::Signed(value) => Value32::Signed(value as i32),
+			Value8::Unsigned(value) => Value32::Unsigned(value as u32),
+		}
+	}
+	pub(crate) fn to_value_64(self) -> Value64 {
+		match self {
+			Value8::Signed(value) => Value64::Signed(value as i64),
+			Value8::Unsigned(value) => Value64::Unsigned(value as u64),
+		}
+	}
+}
+impl Value32 {
+	pub(crate) fn to_value_64(self) -> Value64 {
+		match self {
+			Value32::Signed(value) => Value64::Signed(value as i64),
+			Value32::Unsigned(value) => Value64::Unsigned(value as u64),
+		}
+	}
+}
+
+#[derive(Debug)]
 pub(crate) enum ImmRich8 {
 	Value(Value8),
 }
@@ -120,8 +147,19 @@ impl ImmRich8 {
 	pub(crate) fn is_value_zero(&self) -> bool {
 		matches!(self, ImmRich8::Value(value8) if value8.is_zero())
 	}
+
+	pub(crate) fn to_imm8(&self, layout: &Layout) -> Imm8 {
+		Imm8::from_value(self.to_value_8(layout))
+	}
+	pub(crate) fn to_imm32(&self, layout: &Layout) -> Imm32 {
+		Imm32::from_value(self.to_value_8(layout).to_value_32())
+	}
+	pub(crate) fn to_imm64(&self, layout: &Layout) -> Imm64 {
+		Imm64::from_value(self.to_value_8(layout).to_value_64())
+	}
 }
 
+#[derive(Debug)]
 pub(crate) enum ImmRich32 {
 	DataAddr { offset_in_data_segment: u32 },
 	Value(Value32),
@@ -144,8 +182,16 @@ impl ImmRich32 {
 	pub(crate) fn is_value_zero(&self) -> bool {
 		matches!(self, ImmRich32::Value(value32) if value32.is_zero())
 	}
+
+	pub(crate) fn to_imm32(&self, layout: &Layout) -> Imm32 {
+		Imm32::from_value(self.to_value_32(layout))
+	}
+	pub(crate) fn to_imm64(&self, layout: &Layout) -> Imm64 {
+		Imm64::from_value(self.to_value_32(layout).to_value_64())
+	}
 }
 
+#[derive(Debug)]
 pub(crate) enum ImmRich64 {
 	DataAddr { offset_in_data_segment: u64 },
 	Value(Value64),
@@ -168,10 +214,15 @@ impl ImmRich64 {
 	pub(crate) fn is_value_zero(&self) -> bool {
 		matches!(self, ImmRich64::Value(value64) if value64.is_zero())
 	}
+
+	pub(crate) fn to_imm64(&self, layout: &Layout) -> Imm64 {
+		Imm64::from_value(self.to_value_64(layout))
+	}
 }
 
 /// What would become an immediate value, but with more info such as sign (signed/unsigned),
 /// or can be an address to be determined later, etc.
+#[derive(Debug)]
 pub(crate) enum ImmRich {
 	Imm8(ImmRich8),
 	Imm32(ImmRich32),
@@ -228,6 +279,14 @@ impl ImmRich {
 			ImmRich::Imm8(imm8) => imm8.to_value_8(layout).to_8_bytes(),
 			ImmRich::Imm32(imm32) => imm32.to_value_32(layout).to_8_bytes(),
 			ImmRich::Imm64(imm64) => imm64.to_value_64(layout).to_8_bytes(),
+		}
+	}
+
+	pub(crate) fn to_imm(&self, layout: &Layout) -> Imm {
+		match self {
+			ImmRich::Imm8(imm8) => Imm::Imm8(imm8.to_imm8(layout)),
+			ImmRich::Imm32(imm32) => Imm::Imm32(imm32.to_imm32(layout)),
+			ImmRich::Imm64(imm64) => Imm::Imm64(imm64.to_imm64(layout)),
 		}
 	}
 }
