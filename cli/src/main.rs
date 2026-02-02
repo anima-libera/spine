@@ -177,11 +177,11 @@ fn main() -> ExitCode {
 		return ExitCode::SUCCESS;
 	};
 
-	let command = format!("./{output_file_path}");
 	if args.verbose {
 		println!("Running \"{output_file_path}\"");
-		println!("\x1b[36m{command}\x1b[39m");
 	}
+	let command = format!("./{output_file_path}");
+	println!("\x1b[36m{command}\x1b[39m");
 	let process = std::process::Command::new(command).spawn();
 	let mut process = match process {
 		Err(error) => {
