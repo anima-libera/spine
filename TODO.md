@@ -32,8 +32,6 @@
 - print tokens
 - print AST
 - print quasi machine code
-- print machine code annotated with asm-like form
-- print machine code
 
 ## Language new features
 - tree of scopes, local stuff can refer to anything (type, function, variable, etc.) in the outer scopes

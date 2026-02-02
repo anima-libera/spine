@@ -12,7 +12,8 @@ use crate::{
 /// It is ready to be encoded in its binary machine code representation,
 /// of a known fixed size,
 /// without additional infirmation (meaning it already has all the info it needs).
-pub(crate) enum X8664Instr {
+#[derive(Clone)]
+pub enum X8664Instr {
 	/// - Mnemonic: `PUSH`
 	/// - Variant: `PUSH r64`
 	/// - Opcode: `50+rd`
@@ -474,21 +475,17 @@ impl std::fmt::Display for X8664Instr {
 				write!(f, "xor reg/mem q {src} -> reg q {dst}")
 			},
 			X8664Instr::MovImm64ToReg64 { src, dst } => {
-				let src_value = src.0;
-				write!(f, "mov imm q {src_value} -> reg q {dst}")
+				write!(f, "mov imm q {src} -> reg q {dst}")
 			},
 			X8664Instr::MovImm32ToReg32 { src, dst } => {
-				let src_value = src.0;
 				let dst64 = dst.to_64();
-				write!(f, "mov imm d {src_value} -> reg d {dst} zx q {dst64}")
+				write!(f, "mov imm d {src} -> reg d {dst} zx q {dst64}")
 			},
 			X8664Instr::MovImm8ToReg8 { src, dst } => {
-				let src_value = src.0;
-				write!(f, "mov imm b {src_value} -> reg b {dst}")
+				write!(f, "mov imm b {src} -> reg b {dst}")
 			},
 			X8664Instr::MovImm32ToRegOrMem64 { src, dst } => {
-				let src_value = src.0;
-				write!(f, "mov imm d {src_value} sx q -> reg/mem q {dst}")
+				write!(f, "mov imm d {src} sx q -> reg/mem q {dst}")
 			},
 			X8664Instr::MovRegOrMem64ToReg64 { src, dst } => {
 				write!(f, "mov reg/mem q {src} -> reg q {dst}")
@@ -726,11 +723,11 @@ impl Opcode {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct Imm64(u64);
+pub struct Imm64(u64);
 #[derive(Clone, Copy)]
-pub(crate) struct Imm32(u32);
+pub struct Imm32(u32);
 #[derive(Clone, Copy)]
-pub(crate) struct Imm8(u8);
+pub struct Imm8(u8);
 
 impl Imm64 {
 	pub(crate) fn from_value(value: Value64) -> Imm64 {

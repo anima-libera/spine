@@ -100,12 +100,41 @@ fn main() -> ExitCode {
 	}
 	let elf = bin.to_binary();
 
-	if args.print_machine_code {
+	if args.print_machine_code && !args.print_asm {
+		// Just print the machine code, raw, no annotations.
 		println!("Machine code:");
 		for byte in bin.code_segment_binary_machine_code() {
 			print!("{byte:02x}");
 		}
 		println!();
+	}
+
+	if args.print_asm && !args.print_machine_code {
+		// Just print the assembly-ish, without the corresponding machine code.
+		println!("Assembly-ish representation of machine code:");
+		for (_instr_binary, instr) in bin.code_segment_binary_and_asm_machine_code() {
+			println!("{instr}");
+		}
+	}
+
+	if args.print_machine_code && args.print_asm {
+		// Print the machine code annotated with corresponding assembly-ish instructions.
+		println!("Machine code and assembly-ish:");
+		let instr_vec = bin.code_segment_binary_and_asm_machine_code();
+		if let Some(instr_binary_max) = instr_vec
+			.iter()
+			.map(|(instr_binary, _instr)| instr_binary.len())
+			.max()
+		{
+			let padding = instr_binary_max * 2;
+			for (instr_binary, instr) in instr_vec {
+				let mut binary_as_str = String::new();
+				for byte in instr_binary {
+					binary_as_str += &format!("{byte:02x}");
+				}
+				println!("{binary_as_str:padding$}  {instr}");
+			}
+		}
 	}
 
 	// Emitting the ELF in an executable file

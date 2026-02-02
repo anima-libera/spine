@@ -75,7 +75,11 @@ pub(crate) fn process_args() -> Result<CmdArgsCases, ExitCode> {
 		param_flag!((Some('v'), "--verbose", verbose), "Print more stuff."),
 		param_flag!(
 			(None, "--machine-code", machine_code),
-			"Print machine code."
+			"Print machine code. Add --asm to annotate."
+		),
+		param_flag!(
+			(None, "--asm", asm),
+			"Print assembly-ish repr of machine code."
 		),
 		param_flag!((None, "--license", license), "Print licensing information."),
 		param_flag!(
@@ -101,6 +105,7 @@ pub(crate) fn process_args() -> Result<CmdArgsCases, ExitCode> {
 		pid_whenever: bool,
 		verbose: bool,
 		machine_code: bool,
+		asm: bool,
 		license: bool,
 		help: bool,
 		#[cfg(feature = "lsp")]
@@ -325,6 +330,7 @@ pub(crate) fn process_args() -> Result<CmdArgsCases, ExitCode> {
 		run,
 		verbose: raw_args.verbose,
 		print_machine_code: raw_args.machine_code,
+		print_asm: raw_args.asm,
 	}))
 }
 
@@ -340,6 +346,7 @@ pub(crate) struct CmdArgs {
 	pub(crate) run: Option<Run>,
 	pub(crate) verbose: bool,
 	pub(crate) print_machine_code: bool,
+	pub(crate) print_asm: bool,
 }
 pub(crate) enum Source {
 	FilePath(String),

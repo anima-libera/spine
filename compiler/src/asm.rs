@@ -101,21 +101,21 @@ pub(crate) fn separate_bit_b_in_bxxx(four_bit_value: U4) -> (Bit, U3) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub(crate) enum Reg64 {
+pub enum Reg64 {
 	Rax, Rcx, Rdx, Rbx, Rsp, Rbp, Rsi, Rdi, R8, R9, R10, R11, R12, R13, R14, R15,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub(crate) enum Reg32 {
+pub enum Reg32 {
 	Eax, Ecx, Edx, Ebx, Esp, Ebp, Esi, Edi, R8d, R9d, R10d, R11d, R12d, R13d, R14d, R15d,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub(crate) enum Reg8 {
+pub enum Reg8 {
 	Al, Cl, Dl, Bl, Spl, Bpl, Sil, Dil, R8b, R9b, R10b, R11b, R12b, R13b, R14b, R15b,
 	// I dont care about AH, BH, and the others that are not the lowest part of their bigger registers.
 }
@@ -282,7 +282,8 @@ impl std::fmt::Display for Reg8 {
 	}
 }
 
-pub(crate) enum RegOrMem64 {
+#[derive(Clone)]
+pub enum RegOrMem64 {
 	/// Access the register.
 	Reg64(Reg64),
 	/// Access memory for which the address is the value contained in the register.
@@ -299,7 +300,8 @@ impl std::fmt::Display for RegOrMem64 {
 	}
 }
 
-pub(crate) enum RegOrMem32 {
+#[derive(Clone)]
+pub enum RegOrMem32 {
 	/// Access the register.
 	Reg32(Reg32),
 	/// Access memory for which the address is the value contained in the register.
@@ -316,7 +318,8 @@ impl std::fmt::Display for RegOrMem32 {
 	}
 }
 
-pub(crate) enum RegOrMem8 {
+#[derive(Clone)]
+pub enum RegOrMem8 {
 	/// Access the register.
 	Reg8(Reg8),
 	/// Access memory for which the address is the value contained in the register.
@@ -335,7 +338,7 @@ impl std::fmt::Display for RegOrMem8 {
 
 /// Immediate relative offset for `JMP rel32` instruction.
 #[derive(Clone, Copy)]
-pub(crate) struct Rel32(i32);
+pub struct Rel32(i32);
 
 impl Rel32 {
 	pub(crate) fn to_u32(self) -> u32 {

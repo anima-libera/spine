@@ -1,6 +1,6 @@
 use std::{collections::HashMap, os::unix::fs::PermissionsExt};
 
-use crate::asm::AsmInstr;
+use crate::{asm::AsmInstr, x86_64::X8664Instr};
 
 struct ByteBuffer {
 	bytes: Vec<u8>,
@@ -98,6 +98,7 @@ impl Binary {
 		}
 	}
 
+	/// Produces the binary machine code that would have ended up in the ELF binary.
 	pub fn code_segment_binary_machine_code(&self) -> Vec<u8> {
 		let layout = self.layout();
 		let mut instr_address = layout.code_segment_address;
@@ -121,6 +122,30 @@ impl Binary {
 			}
 		}
 		machine_code_bytes
+	}
+
+	/// Like [`Self::code_segment_binary_machine_code`] but the machine code is
+	/// annotated by the x86_64 instructions that produce it.
+	pub fn code_segment_binary_and_asm_machine_code(&self) -> Vec<(Vec<u8>, X8664Instr)> {
+		let layout = self.layout();
+		let mut instr_address = layout.code_segment_address;
+		let mut instr_vec = Vec::new();
+		for asm_instr in self.asm_instrs.iter() {
+			let expected_size = asm_instr.machine_code_size();
+			let mut actual_size = 0;
+
+			for instr in asm_instr.to_machine_code(&layout, instr_address).iter() {
+				let instr_binary = instr.to_machine_code().to_binary();
+				actual_size += instr_binary.len();
+				instr_vec.push((instr_binary, instr.clone()));
+			}
+			instr_address += asm_instr.machine_code_size();
+
+			if expected_size != actual_size {
+				panic!("machine code size mismatch for instr {:?}", asm_instr);
+			}
+		}
+		instr_vec
 	}
 
 	fn code_size_in_binary(&self) -> usize {
