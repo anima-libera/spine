@@ -1,5 +1,5 @@
 use core::str;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
@@ -90,7 +90,7 @@ impl RadixPrefixKindAndValue {
 /// Integer literal token, like `41` or `0x6a`.
 #[derive(Debug)]
 pub struct IntegerLiteral {
-	pub(crate) span: Span,
+	pub span: Span,
 	pub(crate) radix_prefix: Option<Result<RadixPrefix, RadixPrefixError>>,
 	/// Is `None` if `radix_prefix` has an error that prevented the parsing of the value.
 	pub value: Option<Result<i64, IntegerLiteralValueError>>,
@@ -176,6 +176,8 @@ pub enum ExplicitKeywordWhich {
 	Syscall,
 	/// Executes the illegal x86_64 instruction `UD2`.
 	Illegal,
+	/// WIP compile-time definition!
+	WipDef,
 }
 
 /// Explicit keyword token, like `kwexit`.
@@ -187,7 +189,7 @@ pub struct ExplicitKeyword {
 
 #[derive(Debug, Clone)]
 pub struct Identifier {
-	pub(crate) span: Span,
+	pub span: Span,
 	pub(crate) name: String,
 }
 
@@ -899,6 +901,7 @@ fn parse_word(reader: &mut Reader) -> Token {
 			"kwcpi" => Some(ExplicitKeywordWhich::CastPointerToI64),
 			"kwsys" => Some(ExplicitKeywordWhich::Syscall),
 			"kwill" => Some(ExplicitKeywordWhich::Illegal),
+			"kwdef" => Some(ExplicitKeywordWhich::WipDef),
 			_ => None,
 		};
 		Token::ExplicitKeyword(ExplicitKeyword { span, keyword })
@@ -1028,6 +1031,24 @@ impl Tokenizer {
 	}
 }
 
+struct WipDef {
+	name: String,
+	// WIP!
+	value: i64,
+}
+
+struct HighContextFromOneScope {
+	wip_defs: HashMap<String, WipDef>,
+}
+
+struct HighContext {
+	/// Last element is tge current scope,
+	/// second last element is the closest enclosing scope,
+	/// first element is the outermost enclosing scope.
+	/// Like a stack of scopes.
+	scopes: Vec<HighContextFromOneScope>,
+}
+
 #[derive(Debug)]
 pub struct HighProgram {
 	pub(crate) source: Arc<SourceCode>,
@@ -1040,6 +1061,13 @@ pub enum HighStatement {
 	/// that actually does something when executed (so NOT a declarative statement).
 	Code {
 		instructions: Vec<HighInstruction>,
+		semicolon: Option<Pos>,
+	},
+	/// WIP definition of an identifier to which is associated a value given as an integer literal.
+	WipDef {
+		wip_def_kw_span: Span,
+		identifier: Option<Identifier>,
+		value: Option<Box<IntegerLiteral>>,
 		semicolon: Option<Pos>,
 	},
 	/// A block statement containing more statements.
@@ -1073,6 +1101,19 @@ impl HighStatement {
 					semicolon
 				} else {
 					&instructions.last().unwrap().span().end_pos()
+				};
+				start.span_to(end).unwrap()
+			},
+			HighStatement::WipDef { wip_def_kw_span, identifier, value, semicolon } => {
+				let start = wip_def_kw_span.start_pos();
+				let end = if let Some(semicolon) = semicolon {
+					semicolon
+				} else if let Some(value) = value {
+					&value.span.end_pos()
+				} else if let Some(identifier) = identifier {
+					&identifier.span.end_pos()
+				} else {
+					&wip_def_kw_span.end_pos()
 				};
 				start.span_to(end).unwrap()
 			},
@@ -1167,9 +1208,16 @@ impl HighInstruction {
 					ExplicitKeywordWhich::Illegal => {
 						OperandAndReturnTypes { operand_types: vec![], return_types: vec![] }
 					},
+					ExplicitKeywordWhich::WipDef => {
+						panic!("defintion keyword does not have a type signature")
+					},
 				}
 			},
-			HighInstruction::Identifier(_) => unimplemented!(),
+			HighInstruction::Identifier(_) => {
+				// WIP: For now the only definition statement possible allows only integers,
+				// so the only thing that an indentifier can evaluate to is an integer.
+				OperandAndReturnTypes { operand_types: vec![], return_types: vec![SpineType::I64] }
+			},
 		}
 	}
 }
@@ -1179,6 +1227,13 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 
 	if matches!(first_token, Token::CurlyOpen(_)) {
 		return parse_block_statement(tokenizer);
+	}
+
+	if matches!(
+		first_token,
+		Token::ExplicitKeyword(ExplicitKeyword { keyword: Some(ExplicitKeywordWhich::WipDef), .. })
+	) {
+		return parse_wip_def_statement(tokenizer);
 	}
 
 	let mut instructions = vec![];
@@ -1259,6 +1314,45 @@ fn parse_block_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 		statements.push(statement);
 	};
 	HighStatement::Block { statements, curly_open, curly_close }
+}
+
+fn parse_wip_def_statement(tokenizer: &mut Tokenizer) -> HighStatement {
+	let Token::ExplicitKeyword(ExplicitKeyword {
+		keyword: Some(ExplicitKeywordWhich::WipDef),
+		span: wip_def_kw_span,
+	}) = tokenizer.pop_token().unwrap()
+	else {
+		panic!()
+	};
+
+	let identifier = if matches!(tokenizer.peek_token(), Some(Token::Identifier(_))) {
+		let Some(Token::Identifier(identifier)) = tokenizer.pop_token() else {
+			panic!()
+		};
+		Some(identifier)
+	} else {
+		None
+	};
+
+	let value = if matches!(tokenizer.peek_token(), Some(Token::IntegerLiteral(_))) {
+		let Some(Token::IntegerLiteral(value)) = tokenizer.pop_token() else {
+			panic!()
+		};
+		Some(Box::new(value))
+	} else {
+		None
+	};
+
+	let semicolon = if matches!(tokenizer.peek_token(), Some(Token::Semicolon(_))) {
+		let Some(Token::Semicolon(semicolon)) = tokenizer.pop_token() else {
+			panic!()
+		};
+		Some(semicolon)
+	} else {
+		None
+	};
+
+	HighStatement::WipDef { wip_def_kw_span, identifier, value, semicolon }
 }
 
 fn parse_program(tokenizer: &mut Tokenizer) -> HighProgram {
@@ -1377,14 +1471,31 @@ pub struct LowProgram {
 fn compile_statement_to_low_level_statements(
 	statement: &HighStatement,
 	low_statements: &mut Vec<LowStatement>,
+	context: &mut HighContext,
 ) {
 	match statement {
 		HighStatement::Empty { .. } => {},
 		HighStatement::SomeUnexpectedCharacters { .. } => panic!(),
 		HighStatement::UnexpectedClosingCurly { .. } => panic!(),
 		HighStatement::Block { statements, .. } => {
+			context
+				.scopes
+				.push(HighContextFromOneScope { wip_defs: HashMap::default() });
+
 			for statement in statements {
-				compile_statement_to_low_level_statements(statement, low_statements);
+				compile_statement_to_low_level_statements(statement, low_statements, context);
+			}
+
+			context.scopes.pop();
+		},
+		HighStatement::WipDef { wip_def_kw_span, identifier, value, semicolon } => {
+			if let Some(IntegerLiteral { value: Some(Ok(value)), .. }) = value.as_deref()
+				&& let Some(identifier) = identifier
+			{
+				context.scopes.last_mut().unwrap().wip_defs.insert(
+					identifier.name.clone(),
+					WipDef { name: identifier.name.clone(), value: *value },
+				);
 			}
 		},
 		HighStatement::Code { instructions, .. } => {
@@ -1434,9 +1545,21 @@ fn compile_statement_to_low_level_statements(
 							ExplicitKeywordWhich::CastPointerToI64 => LowInstr::NopZeroBytes,
 							ExplicitKeywordWhich::Syscall => LowInstr::Syscall,
 							ExplicitKeywordWhich::Illegal => LowInstr::Illegal,
+							ExplicitKeywordWhich::WipDef => panic!(),
 						}
 					},
-					HighInstruction::Identifier(_) => unimplemented!(),
+					HighInstruction::Identifier(identifier) => {
+						if let Some(value) = context
+							.scopes
+							.iter()
+							.rev()
+							.find_map(|scope| scope.wip_defs.get(&identifier.name).map(|def| def.value))
+						{
+							LowInstr::PushConst(SpineValue::I64(value))
+						} else {
+							unimplemented!("error: undefined identifier \"{}\"", identifier.name)
+						}
+					},
 				})
 				.collect();
 			low_statements.push(LowStatement::Code { instrs });
@@ -1446,8 +1569,11 @@ fn compile_statement_to_low_level_statements(
 
 pub fn compile_to_low_level(program: &HighProgram) -> LowProgram {
 	let mut low_statements = vec![];
+	let mut context = HighContext {
+		scopes: vec![HighContextFromOneScope { wip_defs: HashMap::default() }],
+	};
 	for statement in program.statements.iter() {
-		compile_statement_to_low_level_statements(statement, &mut low_statements);
+		compile_statement_to_low_level_statements(statement, &mut low_statements, &mut context);
 	}
 	LowProgram { statements: low_statements }
 }

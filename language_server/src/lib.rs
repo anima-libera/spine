@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use spine_compiler::err::{CompilationError, CompilationWarning};
-use spine_compiler::lang::{Comment, list_comments};
-use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16};
+use spine_compiler::lang::{Comment, IntegerLiteral, list_comments};
+use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16, Span};
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
@@ -496,6 +496,9 @@ impl LanguageServer for SpineLanguageServer {
 			CurlyOpen(&'a Pos),
 			CurlyClose(&'a Pos),
 			Instruction(&'a HighInstruction),
+			WipDefKeyword(&'a Span),
+			WipDefIdentifier(&'a Span),
+			WipDefValue(&'a IntegerLiteral),
 		}
 		let token_thingy = 'token_thingy: {
 			match statement {
@@ -504,6 +507,26 @@ impl LanguageServer for SpineLanguageServer {
 						if instruction.span().contains_lsp_position(pos) {
 							break 'token_thingy Some(TokenThingy::Instruction(instruction));
 						}
+					}
+					if let Some(semicolon) = semicolon
+						&& semicolon.is_lsp_position(pos)
+					{
+						break 'token_thingy Some(TokenThingy::Semicolon(semicolon));
+					}
+				},
+				HighStatement::WipDef { wip_def_kw_span, identifier, value, semicolon } => {
+					if wip_def_kw_span.contains_lsp_position(pos) {
+						break 'token_thingy Some(TokenThingy::WipDefKeyword(wip_def_kw_span));
+					}
+					if let Some(identifier) = identifier
+						&& identifier.span.contains_lsp_position(pos)
+					{
+						break 'token_thingy Some(TokenThingy::WipDefIdentifier(&identifier.span));
+					}
+					if let Some(value) = value
+						&& value.span.contains_lsp_position(pos)
+					{
+						break 'token_thingy Some(TokenThingy::WipDefValue(value));
 					}
 					if let Some(semicolon) = semicolon
 						&& semicolon.is_lsp_position(pos)
@@ -548,6 +571,7 @@ impl LanguageServer for SpineLanguageServer {
 						HighStatement::Empty { .. } => "Empty statement".to_string(),
 						HighStatement::Code { instructions, .. } =>
 							format!("Code statement of {} insructions", instructions.len()),
+						HighStatement::WipDef { .. } => "WIP definition".to_string(),
 						HighStatement::Block { statements, .. } =>
 							format!("Block statement of {} statements", statements.len()),
 						HighStatement::SomeUnexpectedCharacters { .. } => "Error".to_string(),
@@ -589,6 +613,11 @@ impl LanguageServer for SpineLanguageServer {
 					HighInstruction::Identifier(_) => "Identifier".to_string(),
 				};
 				(instruction.span().clone(), documentation)
+			},
+			Some(TokenThingy::WipDefIdentifier(span))
+			| Some(TokenThingy::WipDefKeyword(span))
+			| Some(TokenThingy::WipDefValue(IntegerLiteral { span, .. })) => {
+				(span.clone(), "WIP definition".to_string())
 			},
 		};
 		let range_utf16 = span.to_lsp_range_utf16();

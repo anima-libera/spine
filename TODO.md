@@ -1,3 +1,12 @@
+## Current WIP feature: definitions!
+- internal: make context management easier
+- internal: make this less awkward
+- error: undefined indentifier
+- ide extention: make the definition keyword and the identifier into cool token types
+- language server: display the definition of the hovered identifier
+- language: accept all the kinds of literals
+- language server: autocomplete suggestions with idents in scope and outer scopes
+
 ## Errors and warnings
 - warning for block comment missing closing curly (to be actually displayed when comments are not ignored)
 - type checking errors

@@ -597,6 +597,9 @@ impl HighStatement {
 				for instruction in instructions.iter() {
 					match instruction {
 						HighInstruction::Identifier(identifier) => {
+							// TODO: Bring back this error, but with a check at the context
+							// (some idents are valid now!).
+							#[cfg(false)]
 							errors.push(CompilationError::UnknownIdentifier(identifier.clone()));
 						},
 						HighInstruction::IntegerLiteral(integer_literal) => {
