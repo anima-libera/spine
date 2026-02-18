@@ -9,6 +9,7 @@
 				{ "include": "#integer-literal" },
 				{ "include": "#character-literal" },
 				{ "include": "#string-literal" },
+				{ "include": "#definition" },
 				{ "include": "#keyword" },
 				{ "include": "#semicolon" },
 				{ "include": "#comment" }
@@ -17,6 +18,13 @@
 		"keyword": {
 			"match": "\\bkw\\w+\\b",
 			"name": "keyword.spine"
+		},
+		"definition": {
+			"match": "\\b(kwdef)\\b\\s+\\b(\\w+)\\b",
+			"captures": {
+				"1": { "name": "storage.type.function.spine" },
+				"2": { "name": "entity.name.function.spine" }
+			}
 		},
 		"integer-literal": {
 			"patterns": [
