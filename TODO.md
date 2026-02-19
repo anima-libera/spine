@@ -1,5 +1,4 @@
 ## Current WIP feature: definitions!
-- internal: make context management easier
 - internal: make this less awkward
 - error: undefined indentifier
 - language server: display the definition of the hovered identifier

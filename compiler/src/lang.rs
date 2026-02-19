@@ -1037,16 +1037,51 @@ struct WipDef {
 	value: i64,
 }
 
-struct HighContextFromOneScope {
+struct HighScopeContext {
 	wip_defs: HashMap<String, WipDef>,
 }
 
-struct HighContext {
-	/// Last element is tge current scope,
-	/// second last element is the closest enclosing scope,
+struct HighScopeStack {
+	/// Scope stack!
+	/// Last element is the current scope, second last element is the closest enclosing scope,
 	/// first element is the outermost enclosing scope.
-	/// Like a stack of scopes.
-	scopes: Vec<HighContextFromOneScope>,
+	scopes: Vec<HighScopeContext>,
+}
+
+impl HighScopeContext {
+	fn new() -> HighScopeContext {
+		HighScopeContext { wip_defs: HashMap::default() }
+	}
+}
+
+impl HighScopeStack {
+	fn new_with_one_empty_scope() -> HighScopeStack {
+		HighScopeStack { scopes: vec![HighScopeContext::new()] }
+	}
+
+	fn with_pushed_empty_scope<T>(&mut self, f: impl FnOnce(&mut HighScopeStack) -> T) -> T {
+		self.scopes.push(HighScopeContext::new());
+		let res = f(self);
+		self.scopes.pop();
+		res
+	}
+
+	fn add_wip_def_in_current_scope(&mut self, def: WipDef) {
+		self
+			.scopes
+			.last_mut()
+			.unwrap()
+			.wip_defs
+			.insert(def.name.clone(), def);
+	}
+
+	fn get_wip_def(&self, name: &String) -> Option<&WipDef> {
+		self
+			.scopes
+			.iter()
+			.rev()
+			.find_map(|scope| scope.wip_defs.get(name))
+	}
 }
 
 #[derive(Debug)]
@@ -1471,31 +1506,27 @@ pub struct LowProgram {
 fn compile_statement_to_low_level_statements(
 	statement: &HighStatement,
 	low_statements: &mut Vec<LowStatement>,
-	context: &mut HighContext,
+	scope_stack: &mut HighScopeStack,
 ) {
 	match statement {
 		HighStatement::Empty { .. } => {},
 		HighStatement::SomeUnexpectedCharacters { .. } => panic!(),
 		HighStatement::UnexpectedClosingCurly { .. } => panic!(),
 		HighStatement::Block { statements, .. } => {
-			context
-				.scopes
-				.push(HighContextFromOneScope { wip_defs: HashMap::default() });
-
-			for statement in statements {
-				compile_statement_to_low_level_statements(statement, low_statements, context);
-			}
-
-			context.scopes.pop();
+			scope_stack.with_pushed_empty_scope(|scope_stack| {
+				for statement in statements {
+					compile_statement_to_low_level_statements(statement, low_statements, scope_stack);
+				}
+			});
 		},
 		HighStatement::WipDef { wip_def_kw_span, identifier, value, semicolon } => {
 			if let Some(IntegerLiteral { value: Some(Ok(value)), .. }) = value.as_deref()
 				&& let Some(identifier) = identifier
 			{
-				context.scopes.last_mut().unwrap().wip_defs.insert(
-					identifier.name.clone(),
-					WipDef { name: identifier.name.clone(), value: *value },
-				);
+				scope_stack.add_wip_def_in_current_scope(WipDef {
+					name: identifier.name.clone(),
+					value: *value,
+				});
 			}
 		},
 		HighStatement::Code { instructions, .. } => {
@@ -1549,11 +1580,9 @@ fn compile_statement_to_low_level_statements(
 						}
 					},
 					HighInstruction::Identifier(identifier) => {
-						if let Some(value) = context
-							.scopes
-							.iter()
-							.rev()
-							.find_map(|scope| scope.wip_defs.get(&identifier.name).map(|def| def.value))
+						if let Some(value) = scope_stack
+							.get_wip_def(&identifier.name)
+							.map(|def| def.value)
 						{
 							LowInstr::PushConst(SpineValue::I64(value))
 						} else {
@@ -1569,11 +1598,9 @@ fn compile_statement_to_low_level_statements(
 
 pub fn compile_to_low_level(program: &HighProgram) -> LowProgram {
 	let mut low_statements = vec![];
-	let mut context = HighContext {
-		scopes: vec![HighContextFromOneScope { wip_defs: HashMap::default() }],
-	};
+	let mut scope_stack = HighScopeStack::new_with_one_empty_scope();
 	for statement in program.statements.iter() {
-		compile_statement_to_low_level_statements(statement, &mut low_statements, &mut context);
+		compile_statement_to_low_level_statements(statement, &mut low_statements, &mut scope_stack);
 	}
 	LowProgram { statements: low_statements }
 }
