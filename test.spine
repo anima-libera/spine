@@ -1,37 +1,37 @@
 -- Hello world!!
-kwps "Hello, World!\n";
+ps "Hello, World!\n";
 
 {
 	-- All of these print `a`, they all demonstrate different literal syntaxes.
-	kwpc 'a';        -- character
-	kwpc '\x61';     -- character escape with two-hexadecimal-digits ASCII code
-	kwpc '\u{61}';   -- character escape with hexadecimal Unicode scalar value
-	kwpc '\d{97}';   -- character escape with decimal Unicode scalar value
-	kwpc 97;         -- decimal
-	kwpc 0x61;       -- hexadecimal
-	kwpc 0b01100001; -- binary
-	kwpc 0r{8}141;   -- arbitrary radix (here 8, so octal)
-	kwpc 0r{36}2p;   -- arbitrary radix (here 36, so 0-9 and a-z are digits)
+	pc 'a';        -- character
+	pc '\x61';     -- character escape with two-hexadecimal-digits ASCII code
+	pc '\u{61}';   -- character escape with hexadecimal Unicode scalar value
+	pc '\d{97}';   -- character escape with decimal Unicode scalar value
+	pc 97;         -- decimal
+	pc 0x61;       -- hexadecimal
+	pc 0b01100001; -- binary
+	pc 0r{8}141;   -- arbitrary radix (here 8, so octal)
+	pc 0r{36}2p;   -- arbitrary radix (here 36, so 0-9 and a-z are digits)
 
-	kwpc '\n';
+	pc '\n';
 }
 
 -- Can do this too!
-kwpc kwpc kwpc kwpc 'o' 'w' 'o' '\n';
+pc pc pc pc 'o' 'w' 'o' '\n';
 
 -- Addition!
-kwps "a + 1 is ";
-kwpc kwadd 'a' 1;
-kwpc '\n';
+ps "a + 1 is ";
+pc add 'a' 1;
+pc '\n';
 
 -- Manual syscall!
-kwdi kwdi kwsys 0 0 0 8 kwcpi kwdi "syscall\n" 1 1;
+di di sys 0 0 0 8 cpi di "syscall\n" 1 1;
 -- last `1` is syscall number for the write syscall
 -- second last `1` is the file descriptor for stdout
--- `kwcpi kwdi "syscall\n"` pushes just the pointer of the string (len is discarded) as a number
+-- `cpi di "syscall\n"` pushes just the pointer of the string (len is discarded) as a number
 -- `8` is the string length
 -- syscalls can take up to 6 parameters (not counting syscall number), the unused ones are given 0s
--- kwsys pushes 2 values which we both discard
+-- sys pushes 2 values which we both discard
 
 -- Empty statement, very useful >w<
 ;
@@ -43,14 +43,14 @@ kwdi kwdi kwsys 0 0 0 8 kwcpi kwdi "syscall\n" 1 1;
     and that can have nested blocks {{{}}}
     so it only ends here -> }
 
--- kwill; -- If this were to execute, you would be cursed with great misfortune.
+-- ill; -- If this were to execute, you would be cursed with great misfortune.
 
 -- WIP defintion thingy..
-kwdef bwa 97;
-kwpc bwa;
-{ kwdef bwa 98; kwpc bwa; --{ Shadowing! } }
-kwpc bwa;
-kwpc '\n';
+def bwa 97;
+pc bwa;
+{ def bwa 98; pc bwa; --{ Shadowing! } }
+pc bwa;
+pc '\n';
 
 -- Terminates process execution. Segfault probably occurs if execution reaches the end without encountering this.
-kwexit;
+exit;

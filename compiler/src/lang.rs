@@ -890,20 +890,21 @@ fn parse_word(reader: &mut Reader) -> Token {
 	reader.skip_while(|c| c.is_ascii_alphanumeric() || c == '_');
 	let span = first.span_to_prev(reader).unwrap();
 	let word = span.as_str();
-	if word.starts_with("kw") {
-		// Explicit keyword
-		let keyword = match word {
-			"kwpc" => Some(ExplicitKeywordWhich::PrintChar),
-			"kwps" => Some(ExplicitKeywordWhich::PrintStr),
-			"kwadd" => Some(ExplicitKeywordWhich::Add),
-			"kwexit" => Some(ExplicitKeywordWhich::Exit),
-			"kwdi" => Some(ExplicitKeywordWhich::DiscardI64),
-			"kwcpi" => Some(ExplicitKeywordWhich::CastPointerToI64),
-			"kwsys" => Some(ExplicitKeywordWhich::Syscall),
-			"kwill" => Some(ExplicitKeywordWhich::Illegal),
-			"kwdef" => Some(ExplicitKeywordWhich::WipDef),
-			_ => None,
-		};
+	let identify_keyword = |word| match word {
+		"pc" => Some(ExplicitKeywordWhich::PrintChar),
+		"ps" => Some(ExplicitKeywordWhich::PrintStr),
+		"add" => Some(ExplicitKeywordWhich::Add),
+		"exit" => Some(ExplicitKeywordWhich::Exit),
+		"di" => Some(ExplicitKeywordWhich::DiscardI64),
+		"cpi" => Some(ExplicitKeywordWhich::CastPointerToI64),
+		"sys" => Some(ExplicitKeywordWhich::Syscall),
+		"ill" => Some(ExplicitKeywordWhich::Illegal),
+		"def" => Some(ExplicitKeywordWhich::WipDef),
+		_ => None,
+	};
+	let is_keyword = identify_keyword(word).is_some() || word.starts_with("kw");
+	if is_keyword {
+		let keyword = identify_keyword(word.strip_prefix("kw").unwrap_or(word));
 		Token::ExplicitKeyword(ExplicitKeyword { span, keyword })
 	} else {
 		let name = word.to_string();

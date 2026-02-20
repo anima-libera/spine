@@ -20,7 +20,7 @@
 			"name": "keyword.spine"
 		},
 		"definition": {
-			"match": "\\b(kwdef)\\b\\s+\\b(\\w+)\\b",
+			"match": "\\b((kw)?def)\\b\\s+\\b(\\w+)\\b",
 			"captures": {
 				"1": { "name": "storage.type.function.spine" },
 				"2": { "name": "entity.name.function.spine" }
