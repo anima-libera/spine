@@ -61,6 +61,22 @@
 				"path": "spine.tmGrammar.json"
 			}
 		],
+		"semanticTokenTypes": [
+			{
+				"id": "keywordDef",
+				"superType": "keyword",
+				"description": "A keyword used to define stuff like a function."
+			}
+		],
+		"semanticTokenModifiers": [],
+		"semanticTokenScopes": [
+			{
+				"language": "spine",
+				"scopes": {
+					"keywordDef": ["storage.type.function.spine"]
+				}
+			}
+		],
 		"configuration": {
 			"title": "Spine",
 			"properties": {

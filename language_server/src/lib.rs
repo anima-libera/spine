@@ -5,7 +5,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use spine_compiler::err::{CompilationError, CompilationWarning};
-use spine_compiler::lang::{Comment, IntegerLiteral, list_comments};
+use spine_compiler::lang::{
+	Comment, ExplicitKeyword, ExplicitKeywordWhich, IntegerLiteral, Token, TokenOrComment,
+	list_tokens_and_comments,
+};
 use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16, Span};
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
@@ -19,7 +22,7 @@ use spine_compiler::{
 struct SourceFileData {
 	source: Arc<SourceCode>,
 	high_program: HighProgram,
-	comments: Vec<Comment>,
+	tokens_and_comments: Vec<TokenOrComment>,
 }
 
 struct SpineLanguageServer {
@@ -35,8 +38,8 @@ impl SpineLanguageServer {
 		} else {
 			let source = Arc::new(SourceCode::from_file(&source_file_path)?);
 			let high_program = parse(Arc::clone(&source));
-			let comments = list_comments(Arc::clone(&source));
-			let source_file = Arc::new(SourceFileData { source, high_program, comments });
+			let tokens_and_comments = list_tokens_and_comments(Arc::clone(&source));
+			let source_file = Arc::new(SourceFileData { source, high_program, tokens_and_comments });
 			source_file_lock
 				.as_mut()
 				.unwrap()
@@ -109,6 +112,10 @@ fn lsp_range_utf16_into_range(lsp_range_utf16: LspRangeUtf16) -> Range {
 #[derive(Clone, Copy)]
 enum TokenType {
 	Comment = 0,
+	Keyword = 1,
+	/// Keyword for defining stuff like functions, added by the extension.
+	KeywordDef = 2,
+	Function = 3,
 }
 
 impl LanguageServer for SpineLanguageServer {
@@ -143,7 +150,12 @@ impl LanguageServer for SpineLanguageServer {
 					SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
 						work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
 						legend: SemanticTokensLegend {
-							token_types: vec![SemanticTokenType::new("comment")],
+							token_types: vec![
+								SemanticTokenType::new("comment"),
+								SemanticTokenType::new("keyword"),
+								SemanticTokenType::new("keywordDef"),
+								SemanticTokenType::new("function"),
+							],
 							token_modifiers: vec![],
 						},
 						range: None,
@@ -181,8 +193,8 @@ impl LanguageServer for SpineLanguageServer {
 		};
 		let source = Arc::new(source);
 		let high_program = parse(Arc::clone(&source));
-		let comments = list_comments(Arc::clone(&source));
-		let source_file = Arc::new(SourceFileData { source, high_program, comments });
+		let tokens_and_comments = list_tokens_and_comments(Arc::clone(&source));
+		let source_file = Arc::new(SourceFileData { source, high_program, tokens_and_comments });
 		self
 			.source_files
 			.lock()
@@ -205,8 +217,8 @@ impl LanguageServer for SpineLanguageServer {
 		let name = source_file_path.to_str().unwrap().to_string();
 		let source = Arc::new(SourceCode::from_string(source_text, name));
 		let high_program = parse(Arc::clone(&source));
-		let comments = list_comments(Arc::clone(&source));
-		let source_file = Arc::new(SourceFileData { source, high_program, comments });
+		let tokens_and_comments = list_tokens_and_comments(Arc::clone(&source));
+		let source_file = Arc::new(SourceFileData { source, high_program, tokens_and_comments });
 		self
 			.source_files
 			.lock()
@@ -647,13 +659,27 @@ impl LanguageServer for SpineLanguageServer {
 		let mut last_token_line = None;
 		let mut last_token_index_utf16 = None;
 
-		for comment in &source_file.comments {
-			let range_utf16 = comment.span.to_lsp_range_utf16();
+		for token_or_comment in &source_file.tokens_and_comments {
+			let semantic_token = match token_or_comment {
+				TokenOrComment::Comment(_) => TokenType::Comment,
+				TokenOrComment::Token(Token::ExplicitKeyword(kw)) => match kw.keyword {
+					Some(ExplicitKeywordWhich::WipDef) => TokenType::KeywordDef,
+					_ => TokenType::Keyword,
+				},
+				_ => continue,
+			};
+
+			let span = match token_or_comment {
+				TokenOrComment::Comment(comment) => comment.span.clone(),
+				TokenOrComment::Token(token) => token.span(),
+			};
+
+			let range_utf16 = span.to_lsp_range_utf16();
 
 			// LSP spec says that multi-line tokens are an optional client capability,
 			// so the client might not support them (or support might be dropped one day).
 			// Just to be safe, we cut multi-line tokens into non-multi-line tokens.
-			let (line_start, line_end) = comment.span.line_range();
+			let (line_start, line_end) = span.line_range();
 			for zero_based_line_number in line_start.zero_based()..=line_end.zero_based() {
 				let line = LineNumber::from_zero_based(zero_based_line_number);
 
@@ -690,7 +716,7 @@ impl LanguageServer for SpineLanguageServer {
 					delta_line,
 					delta_start,
 					length,
-					token_type: TokenType::Comment as u32,
+					token_type: semantic_token as u32,
 					token_modifiers_bitset: 0,
 				});
 				last_token_line = Some(line);

@@ -184,7 +184,7 @@ pub enum ExplicitKeywordWhich {
 #[derive(Debug)]
 pub struct ExplicitKeyword {
 	pub(crate) span: Span,
-	pub(crate) keyword: Option<ExplicitKeywordWhich>,
+	pub keyword: Option<ExplicitKeywordWhich>,
 }
 
 #[derive(Debug, Clone)]
@@ -202,13 +202,13 @@ pub struct Comment {
 }
 
 #[derive(Debug)]
-struct WhitespaceAndComments {
+pub struct WhitespaceAndComments {
 	span: Span,
 	comments: Vec<Comment>,
 }
 
 #[derive(Debug)]
-enum Token {
+pub enum Token {
 	IntegerLiteral(IntegerLiteral),
 	CharacterLiteral(CharacterLiteral),
 	StringLiteral(StringLiteral),
@@ -222,7 +222,7 @@ enum Token {
 }
 
 impl Token {
-	fn span(&self) -> Span {
+	pub fn span(&self) -> Span {
 		match self {
 			Token::IntegerLiteral(t) => t.span.clone(),
 			Token::CharacterLiteral(t) => t.span.clone(),
@@ -1412,19 +1412,27 @@ pub fn parse(source: Arc<SourceCode>) -> HighProgram {
 	parse_program(&mut tokenizer)
 }
 
-pub fn list_comments(source: Arc<SourceCode>) -> Vec<Comment> {
+#[allow(clippy::large_enum_variant)]
+pub enum TokenOrComment {
+	Token(Token),
+	Comment(Comment),
+}
+
+pub fn list_tokens_and_comments(source: Arc<SourceCode>) -> Vec<TokenOrComment> {
 	let mut reader = Reader::new(Arc::clone(&source));
-	let mut comments = vec![];
+	let mut tokens_and_comments = vec![];
 	while let Some(token) = pop_token_from_reader(&mut reader) {
 		if let Token::WhitespaceAndComments(WhitespaceAndComments {
 			comments: comments_from_token,
 			..
 		}) = token
 		{
-			comments.extend(comments_from_token.into_iter());
+			tokens_and_comments.extend(comments_from_token.into_iter().map(TokenOrComment::Comment));
+		} else {
+			tokens_and_comments.push(TokenOrComment::Token(token));
 		}
 	}
-	comments
+	tokens_and_comments
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

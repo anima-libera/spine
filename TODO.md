@@ -1,9 +1,14 @@
 ## Current WIP feature: definitions!
 - internal: make this less awkward
 - error: undefined indentifier
+- error: proper errors for when the defintion statement is ill-formed
 - language server: display the definition of the hovered identifier
 - language: accept all the kinds of literals
 - language server: autocomplete suggestions with idents in scope and outer scopes
+
+## Current WIP feature: semantic token support!
+- make a proper concrete-syntax-tree
+- make token stream have ids on tokens, and later stages be able to refer to the ids to say stuff about tokens
 
 ## Errors and warnings
 - warning for block comment missing closing curly (to be actually displayed when comments are not ignored)
