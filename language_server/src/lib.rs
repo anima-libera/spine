@@ -6,8 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use spine_compiler::err::{CompilationError, CompilationWarning};
 use spine_compiler::lang::{
-	Comment, ExplicitKeyword, ExplicitKeywordWhich, IntegerLiteral, Token, TokenOrComment,
-	list_tokens_and_comments,
+	Comment, IntegerLiteral, Keyword, KeywordWhich, Token, TokenOrComment, list_tokens_and_comments,
 };
 use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16, Span};
 use tower_lsp_server::jsonrpc::Result;
@@ -621,7 +620,13 @@ impl LanguageServer for SpineLanguageServer {
 						}
 					},
 					HighInstruction::StringLiteral(_) => "String literal".to_string(),
-					HighInstruction::ExplicitKeyword(_) => "Explicit keyword".to_string(),
+					HighInstruction::Keyword(kw) => {
+						if kw.kw_prefix {
+							"Explicit keyword".to_string()
+						} else {
+							"Keyword".to_string()
+						}
+					},
 					HighInstruction::Identifier(_) => "Identifier".to_string(),
 				};
 				(instruction.span().clone(), documentation)
@@ -662,8 +667,8 @@ impl LanguageServer for SpineLanguageServer {
 		for token_or_comment in &source_file.tokens_and_comments {
 			let semantic_token = match token_or_comment {
 				TokenOrComment::Comment(_) => TokenType::Comment,
-				TokenOrComment::Token(Token::ExplicitKeyword(kw)) => match kw.keyword {
-					Some(ExplicitKeywordWhich::WipDef) => TokenType::KeywordDef,
+				TokenOrComment::Token(Token::Keyword(kw)) => match kw.keyword {
+					Some(KeywordWhich::WipDef) => TokenType::KeywordDef,
 					_ => TokenType::Keyword,
 				},
 				_ => continue,

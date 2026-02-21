@@ -151,11 +151,8 @@ pub struct StringLiteral {
 	pub(crate) value: Result<String, StringLiteralError>,
 }
 
-/// An explicit keyword starts with `kw` in the code (like `kwexit`)
-/// and serves as an internal compiler feature that is not intended
-/// to be used by a Spine user when proper syntaxes and features come out.
 #[derive(Debug)]
-pub enum ExplicitKeywordWhich {
+pub enum KeywordWhich {
 	/// Pops an i64 and prints the ASCII character it represents.
 	PrintChar,
 	/// Pops an i64 (string length) then pops a pointer (to the string content),
@@ -180,11 +177,12 @@ pub enum ExplicitKeywordWhich {
 	WipDef,
 }
 
-/// Explicit keyword token, like `kwexit`.
 #[derive(Debug)]
-pub struct ExplicitKeyword {
+pub struct Keyword {
 	pub(crate) span: Span,
-	pub keyword: Option<ExplicitKeywordWhich>,
+	/// If true it was something like `kwexit`, if false it was like `exit`.
+	pub kw_prefix: bool,
+	pub keyword: Option<KeywordWhich>,
 }
 
 #[derive(Debug, Clone)]
@@ -212,7 +210,7 @@ pub enum Token {
 	IntegerLiteral(IntegerLiteral),
 	CharacterLiteral(CharacterLiteral),
 	StringLiteral(StringLiteral),
-	ExplicitKeyword(ExplicitKeyword),
+	Keyword(Keyword),
 	Identifier(Identifier),
 	Semicolon(Pos),
 	CurlyOpen(Pos),
@@ -227,7 +225,7 @@ impl Token {
 			Token::IntegerLiteral(t) => t.span.clone(),
 			Token::CharacterLiteral(t) => t.span.clone(),
 			Token::StringLiteral(t) => t.span.clone(),
-			Token::ExplicitKeyword(t) => t.span.clone(),
+			Token::Keyword(t) => t.span.clone(),
 			Token::Identifier(t) => t.span.clone(),
 			Token::Semicolon(pos) => pos.clone().one_char_span(),
 			Token::CurlyOpen(pos) => pos.clone().one_char_span(),
@@ -885,27 +883,33 @@ fn will_parse_word(reader: &Reader) -> bool {
 	reader.peek().is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
+/// A word can be an identifier or a keyword.
 fn parse_word(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
 	reader.skip_while(|c| c.is_ascii_alphanumeric() || c == '_');
 	let span = first.span_to_prev(reader).unwrap();
 	let word = span.as_str();
+
 	let identify_keyword = |word| match word {
-		"pc" => Some(ExplicitKeywordWhich::PrintChar),
-		"ps" => Some(ExplicitKeywordWhich::PrintStr),
-		"add" => Some(ExplicitKeywordWhich::Add),
-		"exit" => Some(ExplicitKeywordWhich::Exit),
-		"di" => Some(ExplicitKeywordWhich::DiscardI64),
-		"cpi" => Some(ExplicitKeywordWhich::CastPointerToI64),
-		"sys" => Some(ExplicitKeywordWhich::Syscall),
-		"ill" => Some(ExplicitKeywordWhich::Illegal),
-		"def" => Some(ExplicitKeywordWhich::WipDef),
+		"pc" => Some(KeywordWhich::PrintChar),
+		"ps" => Some(KeywordWhich::PrintStr),
+		"add" => Some(KeywordWhich::Add),
+		"exit" => Some(KeywordWhich::Exit),
+		"di" => Some(KeywordWhich::DiscardI64),
+		"cpi" => Some(KeywordWhich::CastPointerToI64),
+		"sys" => Some(KeywordWhich::Syscall),
+		"ill" => Some(KeywordWhich::Illegal),
+		"def" => Some(KeywordWhich::WipDef),
 		_ => None,
 	};
-	let is_keyword = identify_keyword(word).is_some() || word.starts_with("kw");
-	if is_keyword {
-		let keyword = identify_keyword(word.strip_prefix("kw").unwrap_or(word));
-		Token::ExplicitKeyword(ExplicitKeyword { span, keyword })
+	let keyword_and_kw_prefix = if let Some(word) = word.strip_prefix("kw") {
+		Some((identify_keyword(word), true))
+	} else {
+		identify_keyword(word).map(|keyword| (Some(keyword), false))
+	};
+
+	if let Some((keyword, kw_prefix)) = keyword_and_kw_prefix {
+		Token::Keyword(Keyword { span, kw_prefix, keyword })
 	} else {
 		let name = word.to_string();
 		Token::Identifier(Identifier { span, name })
@@ -1175,7 +1179,7 @@ pub enum HighInstruction {
 	IntegerLiteral(IntegerLiteral),
 	CharacterLiteral(CharacterLiteral),
 	StringLiteral(StringLiteral),
-	ExplicitKeyword(ExplicitKeyword),
+	Keyword(Keyword),
 	Identifier(Identifier),
 }
 
@@ -1192,7 +1196,7 @@ impl HighInstruction {
 			HighInstruction::IntegerLiteral(t) => &t.span,
 			HighInstruction::CharacterLiteral(t) => &t.span,
 			HighInstruction::StringLiteral(t) => &t.span,
-			HighInstruction::ExplicitKeyword(t) => &t.span,
+			HighInstruction::Keyword(t) => &t.span,
 			HighInstruction::Identifier(t) => &t.span,
 		}
 	}
@@ -1212,42 +1216,38 @@ impl HighInstruction {
 				operand_types: vec![],
 				return_types: vec![SpineType::DataAddr, SpineType::I64],
 			},
-			HighInstruction::ExplicitKeyword(ExplicitKeyword { keyword, .. }) => {
-				match keyword.as_ref().unwrap() {
-					ExplicitKeywordWhich::PrintChar => OperandAndReturnTypes {
-						operand_types: vec![SpineType::I64],
-						return_types: vec![],
-					},
-					ExplicitKeywordWhich::PrintStr => OperandAndReturnTypes {
-						operand_types: vec![SpineType::DataAddr, SpineType::I64],
-						return_types: vec![],
-					},
-					ExplicitKeywordWhich::Add => OperandAndReturnTypes {
-						operand_types: vec![SpineType::I64, SpineType::I64],
-						return_types: vec![SpineType::I64],
-					},
-					ExplicitKeywordWhich::Exit => {
-						OperandAndReturnTypes { operand_types: vec![], return_types: vec![] }
-					},
-					ExplicitKeywordWhich::DiscardI64 => OperandAndReturnTypes {
-						operand_types: vec![SpineType::I64],
-						return_types: vec![],
-					},
-					ExplicitKeywordWhich::CastPointerToI64 => OperandAndReturnTypes {
-						operand_types: vec![SpineType::DataAddr],
-						return_types: vec![SpineType::I64],
-					},
-					ExplicitKeywordWhich::Syscall => OperandAndReturnTypes {
-						operand_types: std::iter::repeat_n(SpineType::I64, 7).collect(),
-						return_types: vec![SpineType::I64, SpineType::I64],
-					},
-					ExplicitKeywordWhich::Illegal => {
-						OperandAndReturnTypes { operand_types: vec![], return_types: vec![] }
-					},
-					ExplicitKeywordWhich::WipDef => {
-						panic!("defintion keyword does not have a type signature")
-					},
-				}
+			HighInstruction::Keyword(Keyword { keyword, .. }) => match keyword.as_ref().unwrap() {
+				KeywordWhich::PrintChar => {
+					OperandAndReturnTypes { operand_types: vec![SpineType::I64], return_types: vec![] }
+				},
+				KeywordWhich::PrintStr => OperandAndReturnTypes {
+					operand_types: vec![SpineType::DataAddr, SpineType::I64],
+					return_types: vec![],
+				},
+				KeywordWhich::Add => OperandAndReturnTypes {
+					operand_types: vec![SpineType::I64, SpineType::I64],
+					return_types: vec![SpineType::I64],
+				},
+				KeywordWhich::Exit => {
+					OperandAndReturnTypes { operand_types: vec![], return_types: vec![] }
+				},
+				KeywordWhich::DiscardI64 => {
+					OperandAndReturnTypes { operand_types: vec![SpineType::I64], return_types: vec![] }
+				},
+				KeywordWhich::CastPointerToI64 => OperandAndReturnTypes {
+					operand_types: vec![SpineType::DataAddr],
+					return_types: vec![SpineType::I64],
+				},
+				KeywordWhich::Syscall => OperandAndReturnTypes {
+					operand_types: std::iter::repeat_n(SpineType::I64, 7).collect(),
+					return_types: vec![SpineType::I64, SpineType::I64],
+				},
+				KeywordWhich::Illegal => {
+					OperandAndReturnTypes { operand_types: vec![], return_types: vec![] }
+				},
+				KeywordWhich::WipDef => {
+					panic!("defintion keyword does not have a type signature")
+				},
 			},
 			HighInstruction::Identifier(_) => {
 				// WIP: For now the only definition statement possible allows only integers,
@@ -1267,7 +1267,7 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 
 	if matches!(
 		first_token,
-		Token::ExplicitKeyword(ExplicitKeyword { keyword: Some(ExplicitKeywordWhich::WipDef), .. })
+		Token::Keyword(Keyword { keyword: Some(KeywordWhich::WipDef), .. })
 	) {
 		return parse_wip_def_statement(tokenizer);
 	}
@@ -1289,8 +1289,8 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 			Some(Token::StringLiteral(string_literal)) => {
 				instructions.push(HighInstruction::StringLiteral(string_literal))
 			},
-			Some(Token::ExplicitKeyword(explicit_keyword)) => {
-				instructions.push(HighInstruction::ExplicitKeyword(explicit_keyword));
+			Some(Token::Keyword(keyword)) => {
+				instructions.push(HighInstruction::Keyword(keyword));
 			},
 			Some(Token::Identifier(identifier)) => {
 				instructions.push(HighInstruction::Identifier(identifier));
@@ -1353,9 +1353,8 @@ fn parse_block_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 }
 
 fn parse_wip_def_statement(tokenizer: &mut Tokenizer) -> HighStatement {
-	let Token::ExplicitKeyword(ExplicitKeyword {
-		keyword: Some(ExplicitKeywordWhich::WipDef),
-		span: wip_def_kw_span,
+	let Token::Keyword(Keyword {
+		keyword: Some(KeywordWhich::WipDef), span: wip_def_kw_span, ..
 	}) = tokenizer.pop_token().unwrap()
 	else {
 		panic!()
@@ -1575,17 +1574,17 @@ fn compile_statement_to_low_level_statements(
 					HighInstruction::StringLiteral(StringLiteral { value, .. }) => {
 						LowInstr::PushString(value.as_ref().unwrap().clone())
 					},
-					HighInstruction::ExplicitKeyword(ExplicitKeyword { keyword, .. }) => {
+					HighInstruction::Keyword(Keyword { keyword, .. }) => {
 						match keyword.as_ref().unwrap() {
-							ExplicitKeywordWhich::PrintChar => LowInstr::PopI64AndPrintAsChar,
-							ExplicitKeywordWhich::PrintStr => LowInstr::PopI64AndPtrAndPrintAsString,
-							ExplicitKeywordWhich::Add => LowInstr::AddI64AndI64,
-							ExplicitKeywordWhich::Exit => LowInstr::Exit,
-							ExplicitKeywordWhich::DiscardI64 => LowInstr::PopI64AndDiscard,
-							ExplicitKeywordWhich::CastPointerToI64 => LowInstr::NopZeroBytes,
-							ExplicitKeywordWhich::Syscall => LowInstr::Syscall,
-							ExplicitKeywordWhich::Illegal => LowInstr::Illegal,
-							ExplicitKeywordWhich::WipDef => panic!(),
+							KeywordWhich::PrintChar => LowInstr::PopI64AndPrintAsChar,
+							KeywordWhich::PrintStr => LowInstr::PopI64AndPtrAndPrintAsString,
+							KeywordWhich::Add => LowInstr::AddI64AndI64,
+							KeywordWhich::Exit => LowInstr::Exit,
+							KeywordWhich::DiscardI64 => LowInstr::PopI64AndDiscard,
+							KeywordWhich::CastPointerToI64 => LowInstr::NopZeroBytes,
+							KeywordWhich::Syscall => LowInstr::Syscall,
+							KeywordWhich::Illegal => LowInstr::Illegal,
+							KeywordWhich::WipDef => panic!(),
 						}
 					},
 					HighInstruction::Identifier(identifier) => {
