@@ -200,12 +200,6 @@ pub struct Comment {
 }
 
 #[derive(Debug)]
-pub struct WhitespaceAndComments {
-	span: Span,
-	comments: Vec<Comment>,
-}
-
-#[derive(Debug)]
 pub enum Token {
 	IntegerLiteral(IntegerLiteral),
 	CharacterLiteral(CharacterLiteral),
@@ -215,7 +209,8 @@ pub enum Token {
 	Semicolon(Pos),
 	CurlyOpen(Pos),
 	CurlyClose(Pos),
-	WhitespaceAndComments(WhitespaceAndComments),
+	Comment(Comment),
+	Whitespace(Span),
 	UnexpectedCharacter(UnexpectedCharacter),
 }
 
@@ -230,7 +225,8 @@ impl Token {
 			Token::Semicolon(pos) => pos.clone().one_char_span(),
 			Token::CurlyOpen(pos) => pos.clone().one_char_span(),
 			Token::CurlyClose(pos) => pos.clone().one_char_span(),
-			Token::WhitespaceAndComments(t) => t.span.clone(),
+			Token::Comment(t) => t.span.clone(),
+			Token::Whitespace(span) => span.clone(),
 			Token::UnexpectedCharacter(t) => t.pos.clone().one_char_span(),
 		}
 	}
@@ -916,54 +912,54 @@ fn parse_word(reader: &mut Reader) -> Token {
 	}
 }
 
-fn will_parse_whitespace_and_comments(reader: &Reader) -> bool {
-	reader.peek().is_some_and(|c| c.is_whitespace()) || reader.ahead_is("--")
+fn will_parse_comment(reader: &Reader) -> bool {
+	reader.ahead_is("--")
 }
 
-fn parse_whitespace_and_comments(reader: &mut Reader) -> Token {
+fn parse_comment(reader: &mut Reader) -> Token {
 	let first = reader.next_pos().unwrap();
-	let mut comments = vec![];
-	loop {
-		reader.skip_whitespace();
-		if !reader.skip_if_ahead_is("--") {
-			// After skipping some whitespace we encounter something that is not a comment,
-			// so this is neither whitespace nor a comment.
-			// This is the end of the "whitespace and comments" token.
-			break;
-		}
-		// We encountered a comment (and already popped the first `--` of it).
-		let is_doc = reader.skip_if_eq('-');
-		let is_block = reader.skip_if_eq('{');
-		let mut is_missing_expected_closing_curly = false;
-		if is_block {
-			// Block comment, that supports nested blocks.
-			let mut depth = 1;
-			loop {
-				reader.skip_while(|c| c != '{' && c != '}');
-				match reader.pop() {
-					Some('{') => depth += 1,
-					Some('}') => depth -= 1,
-					Some(_) => unreachable!(),
-					None => {
-						is_missing_expected_closing_curly = true;
-						break;
-					},
-				}
-				if depth == 0 {
+	assert!(reader.skip_if_ahead_is("--")); // `will_parse_comment` made sure of that.
+
+	let is_doc = reader.skip_if_eq('-');
+	let is_block = reader.skip_if_eq('{');
+	let mut is_missing_expected_closing_curly = false;
+	if is_block {
+		// Block comment, that supports nested blocks.
+		let mut depth = 1;
+		loop {
+			reader.skip_while(|c| c != '{' && c != '}');
+			match reader.pop() {
+				Some('{') => depth += 1,
+				Some('}') => depth -= 1,
+				Some(_) => unreachable!(),
+				None => {
+					is_missing_expected_closing_curly = true;
 					break;
-				}
+				},
 			}
-		} else {
-			// Line comment.
-			reader.skip_while(|c| c != '\n');
-			reader.skip();
+			if depth == 0 {
+				break;
+			}
 		}
-		let span = first.span_to_prev(reader).unwrap();
-		let comment = Comment { span, is_block, is_doc, is_missing_expected_closing_curly };
-		comments.push(comment);
+	} else {
+		// Line comment.
+		reader.skip_while(|c| c != '\n');
+		reader.skip();
 	}
+
 	let span = first.span_to_prev(reader).unwrap();
-	Token::WhitespaceAndComments(WhitespaceAndComments { span, comments })
+	Token::Comment(Comment { span, is_block, is_doc, is_missing_expected_closing_curly })
+}
+
+fn will_parse_whitespace(reader: &Reader) -> bool {
+	reader.peek().is_some_and(|c| c.is_whitespace())
+}
+
+fn parse_whitespace(reader: &mut Reader) -> Token {
+	let first = reader.next_pos().unwrap();
+	reader.skip_whitespace();
+	let span = first.span_to_prev(reader).unwrap();
+	Token::Whitespace(span)
 }
 
 /// Consumes and tokenizes the next token.
@@ -972,8 +968,10 @@ fn parse_whitespace_and_comments(reader: &mut Reader) -> Token {
 fn pop_token_from_reader(reader: &mut Reader) -> Option<Token> {
 	Some(if reader.peek().is_none() {
 		return None;
-	} else if will_parse_whitespace_and_comments(reader) {
-		parse_whitespace_and_comments(reader)
+	} else if will_parse_whitespace(reader) {
+		parse_whitespace(reader)
+	} else if will_parse_comment(reader) {
+		parse_comment(reader)
 	} else if will_parse_integer_literal(reader) {
 		parse_integer_literal(reader)
 	} else if will_parse_character_literal(reader) {
@@ -995,11 +993,12 @@ fn pop_token_from_reader(reader: &mut Reader) -> Option<Token> {
 	})
 }
 
-fn pop_token_from_reader_ignoring_comments(reader: &mut Reader) -> Option<Token> {
+fn pop_token_from_reader_ignoring_whitespace_and_comments(reader: &mut Reader) -> Option<Token> {
 	loop {
 		match pop_token_from_reader(reader) {
-			Some(Token::WhitespaceAndComments(_)) => continue,
-			not_a_comment => break not_a_comment,
+			Some(Token::Whitespace(_)) => continue,
+			Some(Token::Comment(_)) => continue,
+			important => break important,
 		}
 	}
 }
@@ -1019,13 +1018,13 @@ impl Tokenizer {
 		if let Some(token) = self.queue.pop_front() {
 			Some(token)
 		} else {
-			pop_token_from_reader_ignoring_comments(&mut self.reader)
+			pop_token_from_reader_ignoring_whitespace_and_comments(&mut self.reader)
 		}
 	}
 
 	fn peek_ith_token(&mut self, index: usize) -> Option<&Token> {
 		while self.queue.len() <= index {
-			let token = pop_token_from_reader_ignoring_comments(&mut self.reader)?;
+			let token = pop_token_from_reader_ignoring_whitespace_and_comments(&mut self.reader)?;
 			self.queue.push_back(token);
 		}
 		Some(&self.queue[index])
@@ -1295,7 +1294,8 @@ fn parse_statement(tokenizer: &mut Tokenizer) -> HighStatement {
 			Some(Token::Identifier(identifier)) => {
 				instructions.push(HighInstruction::Identifier(identifier));
 			},
-			Some(Token::WhitespaceAndComments(_)) => {},
+			Some(Token::Comment(_)) => {},
+			Some(Token::Whitespace(_)) => {},
 			Some(Token::Semicolon(span)) => break 'instructions Some(span),
 			Some(Token::CurlyOpen(_span)) => unreachable!(),
 			Some(Token::CurlyClose(_span)) => unreachable!(),
@@ -1412,27 +1412,16 @@ pub fn parse(source: Arc<SourceCode>) -> HighProgram {
 	parse_program(&mut tokenizer)
 }
 
-#[allow(clippy::large_enum_variant)]
-pub enum TokenOrComment {
-	Token(Token),
-	Comment(Comment),
-}
-
-pub fn list_tokens_and_comments(source: Arc<SourceCode>) -> Vec<TokenOrComment> {
+pub fn list_tokens_except_whitespace(source: Arc<SourceCode>) -> Vec<Token> {
 	let mut reader = Reader::new(Arc::clone(&source));
-	let mut tokens_and_comments = vec![];
+	let mut tokens = vec![];
 	while let Some(token) = pop_token_from_reader(&mut reader) {
-		if let Token::WhitespaceAndComments(WhitespaceAndComments {
-			comments: comments_from_token,
-			..
-		}) = token
-		{
-			tokens_and_comments.extend(comments_from_token.into_iter().map(TokenOrComment::Comment));
+		if let Token::Whitespace(_) = token {
 		} else {
-			tokens_and_comments.push(TokenOrComment::Token(token));
+			tokens.push(token);
 		}
 	}
-	tokens_and_comments
+	tokens
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

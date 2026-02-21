@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use spine_compiler::err::{CompilationError, CompilationWarning};
 use spine_compiler::lang::{
-	Comment, IntegerLiteral, Keyword, KeywordWhich, Token, TokenOrComment, list_tokens_and_comments,
+	Comment, IntegerLiteral, Keyword, KeywordWhich, Token, list_tokens_except_whitespace,
 };
 use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16, Span};
 use tower_lsp_server::jsonrpc::Result;
@@ -21,7 +21,7 @@ use spine_compiler::{
 struct SourceFileData {
 	source: Arc<SourceCode>,
 	high_program: HighProgram,
-	tokens_and_comments: Vec<TokenOrComment>,
+	tokens: Vec<Token>,
 }
 
 struct SpineLanguageServer {
@@ -37,8 +37,8 @@ impl SpineLanguageServer {
 		} else {
 			let source = Arc::new(SourceCode::from_file(&source_file_path)?);
 			let high_program = parse(Arc::clone(&source));
-			let tokens_and_comments = list_tokens_and_comments(Arc::clone(&source));
-			let source_file = Arc::new(SourceFileData { source, high_program, tokens_and_comments });
+			let tokens = list_tokens_except_whitespace(Arc::clone(&source));
+			let source_file = Arc::new(SourceFileData { source, high_program, tokens });
 			source_file_lock
 				.as_mut()
 				.unwrap()
@@ -192,8 +192,8 @@ impl LanguageServer for SpineLanguageServer {
 		};
 		let source = Arc::new(source);
 		let high_program = parse(Arc::clone(&source));
-		let tokens_and_comments = list_tokens_and_comments(Arc::clone(&source));
-		let source_file = Arc::new(SourceFileData { source, high_program, tokens_and_comments });
+		let tokens = list_tokens_except_whitespace(Arc::clone(&source));
+		let source_file = Arc::new(SourceFileData { source, high_program, tokens });
 		self
 			.source_files
 			.lock()
@@ -216,8 +216,8 @@ impl LanguageServer for SpineLanguageServer {
 		let name = source_file_path.to_str().unwrap().to_string();
 		let source = Arc::new(SourceCode::from_string(source_text, name));
 		let high_program = parse(Arc::clone(&source));
-		let tokens_and_comments = list_tokens_and_comments(Arc::clone(&source));
-		let source_file = Arc::new(SourceFileData { source, high_program, tokens_and_comments });
+		let tokens = list_tokens_except_whitespace(Arc::clone(&source));
+		let source_file = Arc::new(SourceFileData { source, high_program, tokens });
 		self
 			.source_files
 			.lock()
@@ -664,21 +664,17 @@ impl LanguageServer for SpineLanguageServer {
 		let mut last_token_line = None;
 		let mut last_token_index_utf16 = None;
 
-		for token_or_comment in &source_file.tokens_and_comments {
-			let semantic_token = match token_or_comment {
-				TokenOrComment::Comment(_) => TokenType::Comment,
-				TokenOrComment::Token(Token::Keyword(kw)) => match kw.keyword {
+		for token in &source_file.tokens {
+			let semantic_token = match token {
+				Token::Comment(_) => TokenType::Comment,
+				Token::Keyword(kw) => match kw.keyword {
 					Some(KeywordWhich::WipDef) => TokenType::KeywordDef,
 					_ => TokenType::Keyword,
 				},
 				_ => continue,
 			};
 
-			let span = match token_or_comment {
-				TokenOrComment::Comment(comment) => comment.span.clone(),
-				TokenOrComment::Token(token) => token.span(),
-			};
-
+			let span = token.span();
 			let range_utf16 = span.to_lsp_range_utf16();
 
 			// LSP spec says that multi-line tokens are an optional client capability,
