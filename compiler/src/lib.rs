@@ -9,6 +9,7 @@ pub mod asm;
 pub mod elf;
 pub mod err;
 pub mod imm;
+pub mod keywords;
 pub mod lang;
 pub mod src;
 pub mod x86_64;

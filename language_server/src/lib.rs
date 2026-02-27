@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use spine_compiler::err::{CompilationError, CompilationWarning};
+use spine_compiler::keywords::{DEFAULT_KEYWORDS, KeywordWhich};
 use spine_compiler::lang::{
-	Comment, IntegerLiteral, Keyword, KeywordWhich, Token, list_tokens_except_whitespace,
+	Comment, IntegerLiteral, Keyword, Token, list_tokens_except_whitespace,
 };
 use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16, Span};
 use tower_lsp_server::jsonrpc::Result;
@@ -276,180 +277,33 @@ impl LanguageServer for SpineLanguageServer {
 			None
 		};
 
-		if let Some(word) = word_before_cursor
-			&& (word == "k" || word.starts_with("kw"))
-		{
-			Ok(Some(CompletionResponse::Array(vec![
-				CompletionItem {
-					label: "kwexit".to_string(),
-					label_details: Some(CompletionItemLabelDetails {
-						detail: Some(" ( --> )".to_string()),
-						description: Some("terminate execution".to_string()),
-					}),
-					insert_text: None,
-					detail: None,
-					kind: Some(CompletionItemKind::KEYWORD),
-					documentation: Some(Documentation::MarkupContent(MarkupContent {
+		let Some(word_before_cursor) = word_before_cursor else {
+			return Ok(None);
+		};
+		let completion_items = DEFAULT_KEYWORDS
+			.iter()
+			.filter(|kw_in_lang| kw_in_lang.word.starts_with(&word_before_cursor))
+			.map(|kw_in_lang| CompletionItem {
+				label: kw_in_lang.word.to_string(),
+				label_details: kw_in_lang.instr_doc.as_ref().map(|instr_doc| {
+					CompletionItemLabelDetails {
+						detail: Some(format!(" {}", instr_doc.signature)),
+						description: Some(instr_doc.short_doc.to_string()),
+					}
+				}),
+				insert_text: None,
+				detail: None,
+				kind: Some(CompletionItemKind::KEYWORD),
+				documentation: kw_in_lang.instr_doc.as_ref().map(|instr_doc| {
+					Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: "```spine\n\
-							kwexit\n\
-							```\n\
-							*Explicit keyword*\n\n\
-							Calls the `exit` syscall, which terminates the process execution."
-							.to_string(),
-					})),
-					..CompletionItem::default()
-				},
-				CompletionItem {
-					label: "kwpc".to_string(),
-					label_details: Some(CompletionItemLabelDetails {
-						detail: Some(" (char --> )".to_string()),
-						description: Some("print character".to_string()),
-					}),
-					insert_text: None,
-					detail: None,
-					kind: Some(CompletionItemKind::KEYWORD),
-					documentation: Some(Documentation::MarkupContent(MarkupContent {
-						kind: MarkupKind::Markdown,
-						value: "```spine\n\
-							kwpc\n\
-							```\n\
-							*Explicit keyword*\n\n\
-							Calls the `write` syscall with a string made of the provided character."
-							.to_string(),
-					})),
-					..CompletionItem::default()
-				},
-				CompletionItem {
-					label: "kwps".to_string(),
-					label_details: Some(CompletionItemLabelDetails {
-						detail: Some(" (ptr len --> )".to_string()),
-						description: Some("print string".to_string()),
-					}),
-					insert_text: None,
-					detail: None,
-					kind: Some(CompletionItemKind::KEYWORD),
-					documentation: Some(Documentation::MarkupContent(MarkupContent {
-						kind: MarkupKind::Markdown,
-						value: "```spine\n\
-							kwps\n\
-							```\n\
-							*Explicit keyword*\n\n\
-							Calls the `write` syscall with the given pointer and length."
-							.to_string(),
-					})),
-					..CompletionItem::default()
-				},
-				CompletionItem {
-					label: "kwadd".to_string(),
-					label_details: Some(CompletionItemLabelDetails {
-						detail: Some(" (a b --> sum)".to_string()),
-						description: Some("add two numbers".to_string()),
-					}),
-					insert_text: None,
-					detail: None,
-					kind: Some(CompletionItemKind::KEYWORD),
-					documentation: Some(Documentation::MarkupContent(MarkupContent {
-						kind: MarkupKind::Markdown,
-						value: "```spine\n\
-							kwadd\n\
-							```\n\
-							*Explicit keyword*\n\n\
-							Pops two numbers then pushes the result of their addition."
-							.to_string(),
-					})),
-					..CompletionItem::default()
-				},
-				CompletionItem {
-					label: "kwsys".to_string(),
-					label_details: Some(CompletionItemLabelDetails {
-						detail: Some(" (s a1 a2 a3 a4 a5 a6 --> ret1 ret2)".to_string()),
-						description: Some("syscall".to_string()),
-					}),
-					insert_text: None,
-					detail: None,
-					kind: Some(CompletionItemKind::KEYWORD),
-					documentation: Some(Documentation::MarkupContent(MarkupContent {
-						kind: MarkupKind::Markdown,
-						value: "```spine\n\
-							kwsys\n\
-							```\n\
-							*Explicit keyword*\n\n\
-							Pops 6 syscall arguments (last argument is popped first, etc), \
-							then pops a syscall number, then runs the syscall, \
-							then pushes the result 2, then the result.\n\n\
-							Result 2 is meaningless and should always be discarded, \
-							expect in the very specific case of the pipe syscall (syscall number 22) \
-							on some specific architectures where it happens to return two numbers."
-							.to_string(),
-					})),
-					..CompletionItem::default()
-				},
-				CompletionItem {
-					label: "kwcpi".to_string(),
-					label_details: Some(CompletionItemLabelDetails {
-						detail: Some(" (pointer --> number)".to_string()),
-						description: Some("cast pointer to number".to_string()),
-					}),
-					insert_text: None,
-					detail: None,
-					kind: Some(CompletionItemKind::KEYWORD),
-					documentation: Some(Documentation::MarkupContent(MarkupContent {
-						kind: MarkupKind::Markdown,
-						value: "```spine\n\
-							kwcpi\n\
-							```\n\
-							*Explicit keyword*\n\n\
-							Just casts the type of the top value from address to number. \
-							Compile-time only, codegens down to nothing."
-							.to_string(),
-					})),
-					..CompletionItem::default()
-				},
-				CompletionItem {
-					label: "kwdi".to_string(),
-					label_details: Some(CompletionItemLabelDetails {
-						detail: Some(" (number --> )".to_string()),
-						description: Some("discard a number".to_string()),
-					}),
-					insert_text: None,
-					detail: None,
-					kind: Some(CompletionItemKind::KEYWORD),
-					documentation: Some(Documentation::MarkupContent(MarkupContent {
-						kind: MarkupKind::Markdown,
-						value: "```spine\n\
-							kwdi\n\
-							```\n\
-							*Explicit keyword*\n\n\
-							Pops a number and discards it."
-							.to_string(),
-					})),
-					..CompletionItem::default()
-				},
-				CompletionItem {
-					label: "kwill".to_string(),
-					label_details: Some(CompletionItemLabelDetails {
-						detail: Some(" ( --> )".to_string()),
-						description: Some("illegal".to_string()),
-					}),
-					insert_text: None,
-					detail: None,
-					kind: Some(CompletionItemKind::KEYWORD),
-					documentation: Some(Documentation::MarkupContent(MarkupContent {
-						kind: MarkupKind::Markdown,
-						value: "```spine\n\
-							kwill\n\
-							```\n\
-							*Explicit keyword*\n\n\
-							Executes the `UD2` illegal instruction, an explosion follows."
-							.to_string(),
-					})),
-					..CompletionItem::default()
-				},
-			])))
-		} else {
-			Ok(None)
-		}
+						value: instr_doc.long_doc.to_string(),
+					})
+				}),
+				..CompletionItem::default()
+			})
+			.collect();
+		Ok(Some(CompletionResponse::Array(completion_items)))
 	}
 
 	async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {

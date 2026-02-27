@@ -20,6 +20,7 @@ use crate::err::{
 	UnknownRadixPrefixLetter,
 };
 use crate::imm::{ImmRich, ImmRich64};
+use crate::keywords::{DEFAULT_KEYWORDS, KeywordWhich};
 use crate::src::{Pos, Reader, SourceCode, Span};
 
 #[derive(Debug, Clone)]
@@ -149,32 +150,6 @@ pub struct StringLiteral {
 	pub(crate) span: Span,
 	pub(crate) character_escapes: Vec<CharacterEscape>,
 	pub(crate) value: Result<String, StringLiteralError>,
-}
-
-#[derive(Debug)]
-pub enum KeywordWhich {
-	/// Pops an i64 and prints the ASCII character it represents.
-	PrintChar,
-	/// Pops an i64 (string length) then pops a pointer (to the string content),
-	/// then prints the UTF-8 encoded string.
-	/// It works well with string literals (`printstr "uwu\n"` does what we expect).
-	PrintStr,
-	/// Pops two i64 values, add them together, and push the result.
-	Add,
-	/// Terminates the process execution by calling the exit syscall, with 0 as the exit code.
-	Exit,
-	DiscardI64,
-	/// Casts a pointer to i64. Compiles into a nop.
-	CastPointerToI64,
-	/// Performs a syscall with the syscall number and the maximum number of arguments, all raw i64 types.
-	/// Pops 6 i64 arguments from last to first, then pops the syscall number.
-	/// Pushes the second return value (only used by the pipe syscall on some architectures)
-	/// then pushes the (first) return value.
-	Syscall,
-	/// Executes the illegal x86_64 instruction `UD2`.
-	Illegal,
-	/// WIP compile-time definition!
-	WipDef,
 }
 
 #[derive(Debug)]
@@ -886,17 +861,10 @@ fn parse_word(reader: &mut Reader) -> Token {
 	let span = first.span_to_prev(reader).unwrap();
 	let word = span.as_str();
 
-	let identify_keyword = |word| match word {
-		"pc" => Some(KeywordWhich::PrintChar),
-		"ps" => Some(KeywordWhich::PrintStr),
-		"add" => Some(KeywordWhich::Add),
-		"exit" => Some(KeywordWhich::Exit),
-		"di" => Some(KeywordWhich::DiscardI64),
-		"cpi" => Some(KeywordWhich::CastPointerToI64),
-		"sys" => Some(KeywordWhich::Syscall),
-		"ill" => Some(KeywordWhich::Illegal),
-		"def" => Some(KeywordWhich::WipDef),
-		_ => None,
+	let identify_keyword = |word| -> Option<KeywordWhich> {
+		DEFAULT_KEYWORDS
+			.iter()
+			.find_map(|wk_in_lang| (wk_in_lang.word == word).then_some(wk_in_lang.which))
 	};
 	let keyword_and_kw_prefix = if let Some(word) = word.strip_prefix("kw") {
 		Some((identify_keyword(word), true))
