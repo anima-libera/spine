@@ -72,7 +72,7 @@ pub const DEFAULT_KEYWORDS: [KeywordInLang; 9] = [
 			```spine\n\
 			pc\n\
 			```\n\
-			*Keyword*\n\n\
+			*{Keyword}*\n\n\
 			Calls the `write` syscall with a string made of the one provided character."
 	),
 	keyword_instr!(
@@ -84,7 +84,7 @@ pub const DEFAULT_KEYWORDS: [KeywordInLang; 9] = [
 			```spine\n\
 			ps\n\
 			```\n\
-			*Keyword*\n\n\
+			*{Keyword}*\n\n\
 			Calls the `write` syscall with the given pointer and length."
 	),
 	keyword_instr!(
@@ -96,7 +96,7 @@ pub const DEFAULT_KEYWORDS: [KeywordInLang; 9] = [
 			```spine\n\
 			add\n\
 			```\n\
-			*Keyword*\n\n\
+			*{Keyword}*\n\n\
 			Pops two numbers then pushes the result of their addition."
 	),
 	keyword_instr!(
@@ -108,7 +108,7 @@ pub const DEFAULT_KEYWORDS: [KeywordInLang; 9] = [
 			```spine\n\
 			exit\n\
 			```\n\
-			*Keyword*\n\n\
+			*{Keyword}*\n\n\
 			Calls the `exit` syscall, which terminates the process execution."
 	),
 	keyword_instr!(
@@ -120,7 +120,7 @@ pub const DEFAULT_KEYWORDS: [KeywordInLang; 9] = [
 			```spine\n\
 			di\n\
 			```\n\
-			*Keyword*\n\n\
+			*{Keyword}*\n\n\
 			Pops a number and discards it."
 	),
 	keyword_instr!(
@@ -132,7 +132,7 @@ pub const DEFAULT_KEYWORDS: [KeywordInLang; 9] = [
 			```spine\n\
 			cpi\n\
 			```\n\
-			*Keyword*\n\n\
+			*{Keyword}*\n\n\
 			Just casts the type of the top value from address to number. \
 			Compile-time only, codegens down to nothing."
 	),
@@ -145,7 +145,7 @@ pub const DEFAULT_KEYWORDS: [KeywordInLang; 9] = [
 			```spine\n\
 			sys\n\
 			```\n\
-			*Keyword*\n\n\
+			*{Keyword}*\n\n\
 			Pops 6 syscall arguments (last argument is popped first, etc), \
 			then pops a syscall number, then runs the syscall, \
 			then pushes the result 2, then the result.\n\n\
@@ -162,7 +162,7 @@ pub const DEFAULT_KEYWORDS: [KeywordInLang; 9] = [
 			```spine\n\
 			ill\n\
 			```\n\
-			*Keyword*\n\n\
+			*{Keyword}*\n\n\
 			Executes the `UD2` illegal instruction, an explosion follows."
 	),
 	keyword!("def", WipDef),

@@ -280,11 +280,18 @@ impl LanguageServer for SpineLanguageServer {
 		let Some(word_before_cursor) = word_before_cursor else {
 			return Ok(None);
 		};
+		let explicit_kw = word_before_cursor.starts_with("kw");
 		let completion_items = DEFAULT_KEYWORDS
 			.iter()
-			.filter(|kw_in_lang| kw_in_lang.word.starts_with(&word_before_cursor))
+			.filter(|kw_in_lang| {
+				kw_in_lang.word.starts_with(&word_before_cursor)
+					|| word_before_cursor
+						.strip_prefix("kw")
+						.map(|word| kw_in_lang.word.starts_with(word))
+						.unwrap_or(false)
+			})
 			.map(|kw_in_lang| CompletionItem {
-				label: kw_in_lang.word.to_string(),
+				label: format!("{}{}", if explicit_kw { "kw" } else { "" }, kw_in_lang.word),
 				label_details: kw_in_lang.instr_doc.as_ref().map(|instr_doc| {
 					CompletionItemLabelDetails {
 						detail: Some(format!(" {}", instr_doc.signature)),
@@ -297,7 +304,14 @@ impl LanguageServer for SpineLanguageServer {
 				documentation: kw_in_lang.instr_doc.as_ref().map(|instr_doc| {
 					Documentation::MarkupContent(MarkupContent {
 						kind: MarkupKind::Markdown,
-						value: instr_doc.long_doc.to_string(),
+						value: instr_doc.long_doc.replace(
+							"{Keyword}",
+							if explicit_kw {
+								"Explicit keyword"
+							} else {
+								"Keyword"
+							},
+						),
 					})
 				}),
 				..CompletionItem::default()
