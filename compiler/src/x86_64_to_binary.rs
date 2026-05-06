@@ -3,7 +3,6 @@ use crate::{
 		Reg8, Reg32, Reg64, RegOrMem8, RegOrMem32, RegOrMem64,
 		small_uints::{Bit, U2, U3},
 	},
-	imm::Value32,
 	x86_64::{Imm, Imm32, X8664Instr},
 	x86_64_to_binary::{
 		modrm_byte::ModRmByte, opcode_with_reg::OpcodeWithU3Reg, rex_prefix::RexPrefix,

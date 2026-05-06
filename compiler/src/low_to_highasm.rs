@@ -1,31 +1,8 @@
-use core::str;
-use std::collections::{HashMap, VecDeque};
-use std::fmt::Debug;
-use std::path::Path;
-use std::sync::Arc;
-
 use crate::elf::HighAsmBinaryPlan;
-use crate::err::{
-	ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberInvalidDigit,
-	ArbitraryRadixNumberTooBigUnsupported, ArbitraryRadixNumberTooSmall,
-	ArbitraryRadixPrefixMissingClosingCurly, ArbitraryRadixPrefixMissingOpeningCurly,
-	CharacterEscapeInvalidDigit, CharacterEscapeInvalidUnicodeScalarValue,
-	CharacterEscapeMissingClosingCurly, CharacterEscapeMissingHexadecimalDigit,
-	CharacterEscapeMissingNumber, CharacterEscapeMissingOpeningCurly,
-	CharacterEscapeUnexpectedCharacter, CharacterLiteralMissingCharacter,
-	CharacterLiteralMissingClosingQuote, CharacterLiteralMultipleCharacters,
-	CharacterLiteralNonEscapedNewline, IntegerLiteralValueInvalidDigit, IntegerLiteralValueMissing,
-	IntegerLiteralValueOutOfRange, StringLiteralMissingClosingQuote, UnexpectedCharacter,
-	UnknownRadixPrefixLetter,
-};
-use crate::high::{HighInstruction, HighProgram, HighScopeStack, HighStatement, WipDef};
 use crate::high_to_low::SpineValue;
 use crate::highasm::{HighAsmInstr, Reg64};
 use crate::imm::{ImmRich, ImmRich64};
-use crate::keywords::{DEFAULT_KEYWORDS, KeywordWhich};
 use crate::low::{LowInstr, LowProgram, LowStatement};
-use crate::src::{Pos, Reader, SourceCode, Span};
-use crate::tokens::{CharacterLiteral, IntegerLiteral, Keyword, StringLiteral};
 
 pub fn low_to_binary_plan(program: &LowProgram) -> HighAsmBinaryPlan {
 	let mut bin = HighAsmBinaryPlan::new();

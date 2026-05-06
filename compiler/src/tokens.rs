@@ -12,9 +12,8 @@ use crate::{
 		IntegerLiteralValueMissing, IntegerLiteralValueOutOfRange, StringLiteralMissingClosingQuote,
 		UnexpectedCharacter, UnknownRadixPrefixLetter,
 	},
-	high::{HighInstruction, HighProgram, HighStatement},
-	keywords::{DEFAULT_KEYWORDS, KeywordWhich},
-	src::{Pos, Reader, SourceCode, Span},
+	keywords::KeywordWhich,
+	src::{Pos, Span},
 };
 
 #[derive(Debug, Clone)]

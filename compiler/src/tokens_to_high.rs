@@ -1,25 +1,9 @@
-use std::{
-	collections::{HashMap, VecDeque},
-	sync::Arc,
-};
+use std::sync::Arc;
 
 use crate::{
-	err::{
-		ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberInvalidDigit,
-		ArbitraryRadixNumberTooBigUnsupported, ArbitraryRadixNumberTooSmall,
-		ArbitraryRadixPrefixMissingClosingCurly, ArbitraryRadixPrefixMissingOpeningCurly,
-		CharacterEscapeInvalidDigit, CharacterEscapeInvalidUnicodeScalarValue,
-		CharacterEscapeMissingClosingCurly, CharacterEscapeMissingHexadecimalDigit,
-		CharacterEscapeMissingNumber, CharacterEscapeMissingOpeningCurly,
-		CharacterEscapeUnexpectedCharacter, CharacterLiteralMissingCharacter,
-		CharacterLiteralMissingClosingQuote, CharacterLiteralMultipleCharacters,
-		CharacterLiteralNonEscapedNewline, IntegerLiteralValueInvalidDigit,
-		IntegerLiteralValueMissing, IntegerLiteralValueOutOfRange, StringLiteralMissingClosingQuote,
-		UnexpectedCharacter, UnknownRadixPrefixLetter,
-	},
 	high::{HighInstruction, HighProgram, HighStatement},
-	keywords::{DEFAULT_KEYWORDS, KeywordWhich},
-	src::{Pos, Reader, SourceCode, Span},
+	keywords::KeywordWhich,
+	src::{Reader, SourceCode},
 	src_to_tokens::Tokenizer,
 	tokens::{Keyword, Token},
 };

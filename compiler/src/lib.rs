@@ -1,5 +1,3 @@
-#![allow(unused)] // For now, WIP stuff gets too yellow for my taste
-
 #[cfg(test)]
 mod highasm_test;
 #[cfg(test)]

@@ -1,9 +1,6 @@
 use crate::{
-	highasm::{
-		Reg8, Reg32, Reg64, RegOrMem8, RegOrMem32, RegOrMem64, Rel32, separate_bit_b_in_bxxx,
-		small_uints::{Bit, U2, U3, U4},
-	},
-	imm::{ImmRich64, Value8, Value32, Value64},
+	highasm::{Reg8, Reg32, Reg64, RegOrMem8, RegOrMem32, RegOrMem64, Rel32},
+	imm::{Value8, Value32, Value64},
 };
 
 /// Exactly one x86_64 instruction, with arguments and the choice of a specific variant and all.

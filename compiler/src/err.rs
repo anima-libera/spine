@@ -300,7 +300,7 @@ impl CompilationError {
 				"character \'{}\' is unexpected here and causes a parsing error",
 				error.character
 			),
-			CompilationError::UnexpectedClosingCurly(error) => {
+			CompilationError::UnexpectedClosingCurly(_error) => {
 				"unexpected close curly \'}\' that does not match with a previous open curly"
 					.to_string()
 			},
@@ -315,7 +315,7 @@ impl CompilationError {
 				"arbitrary radix prefix must have an open curly \'{{\' just after \"{}\"",
 				error.span_of_0r.as_str()
 			),
-			CompilationError::ArbitraryRadixPrefixMissingClosingCurly(error) => {
+			CompilationError::ArbitraryRadixPrefixMissingClosingCurly(_error) => {
 				"arbitrary radix prefix must have an close curly \'}\' after the radix number"
 					.to_string()
 			},
@@ -382,16 +382,16 @@ impl CompilationError {
 					"".to_string()
 				}
 			),
-			CompilationError::CharacterLiteralNonEscapedNewline(error) => {
+			CompilationError::CharacterLiteralNonEscapedNewline(_error) => {
 				"non-escaped newline character inside a character literal".to_string()
 			},
-			CompilationError::CharacterLiteralMissingClosingQuote(error) => {
+			CompilationError::CharacterLiteralMissingClosingQuote(_error) => {
 				"character literal started here is never closed by a matching single-quote".to_string()
 			},
-			CompilationError::StringLiteralMissingClosingQuote(error) => {
+			CompilationError::StringLiteralMissingClosingQuote(_error) => {
 				"string literal started here is never closed by a matching double-quote".to_string()
 			},
-			CompilationError::CharacterEscapeUnexpectedCharacter(error) => format!(
+			CompilationError::CharacterEscapeUnexpectedCharacter(_error) => format!(
 				"unknown character escape that begins by \"{}\"",
 				self.span().as_str()
 			),
@@ -426,7 +426,7 @@ impl CompilationError {
 				"this character escape must have an open curly \'{{\' just after \"{}\"",
 				error.span_of_slash_and_letter.as_str()
 			),
-			CompilationError::CharacterEscapeMissingClosingCurly(error) => {
+			CompilationError::CharacterEscapeMissingClosingCurly(_error) => {
 				"this character escape must have an close curly \'}\' after the number".to_string()
 			},
 			CompilationError::CharacterEscapeInvalidDigit(error) => format!(
@@ -489,13 +489,13 @@ impl CompilationWarning {
 
 	pub fn message(&self) -> String {
 		match self {
-			CompilationWarning::MissingTerminatingSemicolon { statement_span } => {
+			CompilationWarning::MissingTerminatingSemicolon { .. } => {
 				"missing terminating semicolon \';\' at the end of this statement".to_string()
 			},
-			CompilationWarning::MissingBlockCommentCloseCurly { comment_span } => {
+			CompilationWarning::MissingBlockCommentCloseCurly { .. } => {
 				"missing close curly \'}\' at the end of this block comment".to_string()
 			},
-			CompilationWarning::MissingBlockStatementCloseCurly { block_statement_span } => {
+			CompilationWarning::MissingBlockStatementCloseCurly { .. } => {
 				"missing close curly \'}\' at the end of this block statement".to_string()
 			},
 			CompilationWarning::NewlineInStringLiteral { .. } => {
@@ -596,7 +596,7 @@ impl HighStatement {
 				let errors_len_before = errors.len();
 				for instruction in instructions.iter() {
 					match instruction {
-						HighInstruction::Identifier(identifier) => {
+						HighInstruction::Identifier(_identifier) => {
 							// TODO: Bring back this error, but with a check at the context
 							// (some idents are valid now!).
 							#[cfg(false)]

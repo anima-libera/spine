@@ -13,10 +13,10 @@ fn compile_and_outputs(unique_binary_name: &str, code: impl Into<String>) -> Str
 	let high_program = parse_to_high(Arc::clone(&source_code));
 	let low_program = high_to_low(&high_program);
 	let bin = low_to_binary_plan(&low_program);
-	std::fs::create_dir("test_binaries");
+	std::fs::create_dir("test_binaries").unwrap();
 	let dot_path = format!("./test_binaries/{unique_binary_name}");
 	std::fs::write(&dot_path, bin.to_binary()).unwrap();
-	chmod_x(&dot_path);
+	chmod_x(&dot_path).unwrap();
 
 	// Waiting a bit makes sure that we do not get `ExecutableFileBusy` errors
 	// when executing the binary so soon after generating and chmoding it.

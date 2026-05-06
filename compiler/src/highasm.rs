@@ -1,7 +1,7 @@
 use crate::{
 	elf::Layout,
-	highasm::small_uints::{Bit, U2, U3, U4},
-	imm::{ImmRich, ImmRich32, Value32},
+	highasm::small_uints::{Bit, U3, U4},
+	imm::ImmRich,
 	x86_64::X8664Instr,
 };
 
@@ -44,52 +44,6 @@ pub(crate) mod small_uints {
 		pub(crate) const _0: Bit = Bit::new(0);
 		pub(crate) const _1: Bit = Bit::new(1);
 	}
-}
-
-fn set_byte_bit(byte: &mut u8, bit_index: usize, bit_value: Bit) {
-	*byte |= bit_value.as_u8() << bit_index;
-}
-
-fn byte_from_bits(bits: &[Bit; 8]) -> u8 {
-	let mut byte = 0;
-	for (i, bit) in bits.iter().copied().rev().enumerate() {
-		set_byte_bit(&mut byte, i, bit);
-	}
-	byte
-}
-
-/// Okay, the REX prefix. It is optional, one byte, and comes just before the opcode bytes.
-///
-/// Its format is `0100wrxb` (from high to low), where:
-/// - `w`: 1 means that the instruction uses 64-bits operands, 0 means it uses some default size,
-/// - `r` is an extra high bit that expands ModR/M.reg from 3 to 4 bits (r is the high bit),
-/// - `x` is an extra high bit that expands SIB.index from 3 to 4 bits (x is the high bit),
-/// - `b` is an extra high bit that expands *something* from 3 to 4 bits (b is the high bit),
-///   with *something* being one of:
-///   - ModR/M.r/m
-///   - SIB.base
-///   - the register in the 3 low bits of the opcode byte.
-fn rex_prefix_byte(w: Bit, r: Bit, x: Bit, b: Bit) -> u8 {
-	byte_from_bits(&[Bit::_0, Bit::_1, Bit::_0, Bit::_0, w, r, x, b])
-}
-
-/// Okay, the ModR/M byte. It is optional, one byte, and comes just after the opcode bytes
-/// (before the optional SIB byte and the optional displacement and the optional immediate).
-///
-/// Its format is `mod` (2 bits) then `reg` (3 bits) then `r/m` (3 bits) (from high to low), where:
-/// - `mod`: if it is 11 it means there is no addressing stuff hapenning (no dereferencing),
-///   if it is 00 it means there is *maybe* a simple dereferencing (or maybe not, the Table 2-2
-///   "32-Bit Addressing Forms with the ModR/M Byte" in the Intel x86_64 manual says there are
-///   some exceptions depending on the registers involved), if it is 01 or 10 it means there is
-///   *maybe* a dereferencing of an address added to an immediate offset.
-///   ***TODO** explain this better using § 2.1.3 "ModR/M and SIB Bytes" of the x86_64 manual.*
-/// - `reg` is either the 3 low bits of a register id that is in one of the operands,
-///   or a specific value that complements the opcode bytes.
-/// - `r/m` is also the 3 low bits of a register id that is in one of the operands (or not?
-///   idk, there may be more to it, ***TODO** explain this using § 2.1.3
-///   "ModR/M and SIB Bytes" of the x86_64 manual*).
-fn mod_rm_byte(mod_: U2, reg: U3, rm: U3) -> u8 {
-	mod_.as_u8() << 6 | reg.as_u8() << 3 | rm.as_u8()
 }
 
 pub(crate) fn separate_bit_b_in_bxxx(four_bit_value: U4) -> (Bit, U3) {
@@ -469,7 +423,7 @@ impl HighAsmInstr {
 								let need_rex_r_bit = reg_dst_id_high_bit == Bit::_1;
 								if need_rex_r_bit {
 									// The two REX prefixes needed in this case if we happened to
-									// do here like in the last case happen to make is the same size
+									// do here like in the last case happen to make it the same size
 									// but two instructions instead of one, so it is not worth it.
 									// This is better.
 									vec![X8664Instr::MovImm32ToReg32 {
@@ -660,7 +614,7 @@ struct ConfigForMovImmToReg64 {
 impl ConfigForMovImmToReg64 {
 	fn get(imm_src: &ImmRich, reg_dst: &Reg64) -> Self {
 		match imm_src {
-			ImmRich::Imm64(imm64) => {
+			ImmRich::Imm64(_imm64) => {
 				// `MOV r64, imm64`
 				Self {
 					rex_w: Bit::_1,

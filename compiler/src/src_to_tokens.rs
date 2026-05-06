@@ -14,9 +14,8 @@ use crate::{
 		IntegerLiteralValueMissing, IntegerLiteralValueOutOfRange, StringLiteralMissingClosingQuote,
 		UnexpectedCharacter, UnknownRadixPrefixLetter,
 	},
-	high::{HighInstruction, HighProgram, HighStatement},
 	keywords::{DEFAULT_KEYWORDS, KeywordWhich},
-	src::{Pos, Reader, SourceCode, Span},
+	src::{Reader, SourceCode},
 	tokens::{
 		ArbitraryRadixNumberError, CharacterEscape, CharacterEscapeError, CharacterLiteral,
 		CharacterLiteralError, Comment, Identifier, IntegerLiteral, IntegerLiteralValueError,
@@ -153,7 +152,7 @@ fn parse_maybe_radix_prefix(reader: &mut Reader) -> Option<Result<RadixPrefix, R
 
 			// Make sure that the radix number makes sense
 			// (0 and 1 are the two integers that do not make sense as radix numbers).
-			if let Some(radix_number @ (0 | 1)) = radix_number {
+			if let Some(0 | 1) = radix_number {
 				return Some(Ok(RadixPrefix {
 					span,
 					kind: RadixPrefixKindAndValue::Arbitrary {
@@ -194,7 +193,7 @@ fn parse_maybe_radix_prefix(reader: &mut Reader) -> Option<Result<RadixPrefix, R
 			}))
 		},
 
-		unknown => Some(Err(RadixPrefixError::UnknownRadixPrefixLetter(
+		_unknown => Some(Err(RadixPrefixError::UnknownRadixPrefixLetter(
 			UnknownRadixPrefixLetter { radix_letter_pos },
 		))),
 	}
@@ -361,7 +360,7 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 						reader.skip();
 						value = value * 16 + any_radix_digit_to_value(c).unwrap();
 					},
-					Some(c) => {
+					Some(_c) => {
 						let invalid_digit_pos = reader.next_pos().unwrap();
 						let invalid_digit = invalid_digit_pos.as_char();
 						return Err(CharacterEscapeError::InvalidDigit(
@@ -439,7 +438,7 @@ fn parse_character_escape(reader: &mut Reader) -> Result<CharacterEscape, Charac
 						reader.skip();
 						value = value * 10 + any_radix_digit_to_value(c).unwrap();
 					},
-					Some(c) => {
+					Some(_c) => {
 						let invalid_digit_pos = reader.next_pos().unwrap();
 						let invalid_digit = invalid_digit_pos.as_char();
 						return Err(CharacterEscapeError::InvalidDigit(

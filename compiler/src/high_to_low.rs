@@ -49,7 +49,7 @@ fn compile_statement_to_low_level_statements(
 				}
 			});
 		},
-		HighStatement::WipDef { wip_def_kw_span, identifier, value, semicolon } => {
+		HighStatement::WipDef { identifier, value, .. } => {
 			if let Some(IntegerLiteral { value: Some(Ok(value)), .. }) = value.as_deref()
 				&& let Some(identifier) = identifier
 			{

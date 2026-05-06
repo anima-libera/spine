@@ -1,5 +1,3 @@
-#![allow(unused)] // For now, WIP stuff gets too yellow for my taste
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -8,7 +6,7 @@ use spine_compiler::err::{CompilationError, CompilationWarning};
 use spine_compiler::keywords::{DEFAULT_KEYWORDS, KeywordWhich};
 use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16, Span};
 use spine_compiler::src_to_tokens::list_tokens_except_whitespace;
-use spine_compiler::tokens::{Comment, IntegerLiteral, Keyword, Token};
+use spine_compiler::tokens::{IntegerLiteral, Token};
 use spine_compiler::tokens_to_high::parse_to_high;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
@@ -16,7 +14,7 @@ use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
 use spine_compiler::{
 	high::{HighInstruction, HighProgram, HighStatement},
-	src::{LspPosition, LspRange, Pos, SourceCode},
+	src::{LspPosition, Pos, SourceCode},
 };
 
 struct SourceFileData {
@@ -119,7 +117,7 @@ enum TokenType {
 }
 
 impl LanguageServer for SpineLanguageServer {
-	async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+	async fn initialize(&self, _params: InitializeParams) -> Result<InitializeResult> {
 		Ok(InitializeResult {
 			server_info: Some(ServerInfo { name: "Spine language server".to_string(), version: None }),
 			capabilities: ServerCapabilities {
@@ -622,7 +620,7 @@ impl LanguageServer for SpineLanguageServer {
 		let source_file = self.get_source_file_data(source_file_path.to_path_buf());
 
 		let mut actions = vec![];
-		let (errors, warnings) = source_file.unwrap().high_program.get_errors_and_warnings();
+		let (_errors, warnings) = source_file.unwrap().high_program.get_errors_and_warnings();
 		for warning in warnings {
 			if let Some(fix_by_rewrite) = warning.fix_by_rewrite_proposal() {
 				actions.push(CodeActionOrCommand::CodeAction(CodeAction {
