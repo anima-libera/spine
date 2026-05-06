@@ -24,6 +24,10 @@ fn compile_and_outputs(unique_binary_name: &str, code: impl Into<String>) -> Str
 	std::thread::sleep(Duration::from_millis(20));
 
 	let binary_execution_result = std::process::Command::new(&dot_path).output().unwrap();
+	assert!(
+		binary_execution_result.status.success(),
+		"binary execution status indicates failure"
+	);
 	let binary_execution_output = String::from_utf8(binary_execution_result.stdout);
 	binary_execution_output.unwrap()
 }
