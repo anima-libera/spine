@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use crate::asm::{AsmInstr, BaseSign, BaseSize, Reg64};
 use crate::elf::{Binary, chmod_x};
+use crate::high_asm::{BaseSign, BaseSize, HighAsmInstr, Reg64};
 use crate::imm::{ImmRich, ImmRich8, ImmRich32, ImmRich64, Value8, Value32, Value64};
 
 #[test]
@@ -16,7 +16,7 @@ fn some_assembly_instructions() {
 	let value_offset_in_data = bin.data_bytes.len();
 	bin.data_bytes.extend(value);
 
-	use AsmInstr::*;
+	use HighAsmInstr::*;
 	bin.asm_instrs = vec![
 		// Kinda do *(uint8_t*)message = (-1)+(*(uint8_t*)value); so we sould see "mewwo :3"
 		MovImmToReg64 {
@@ -155,7 +155,7 @@ fn mov_imm_to_reg64_all_variants() {
 		Reg64::R15,
 	];
 
-	use AsmInstr::*;
+	use HighAsmInstr::*;
 
 	// We try all the `MovImmToReg64`s that we can think of.
 	for reg in regs_to_test.iter().copied() {
@@ -302,7 +302,7 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 		Reg64::R15,
 	];
 
-	use AsmInstr::*;
+	use HighAsmInstr::*;
 
 	// We try all the `MovDerefReg64ToReg64`s that we can think of.
 	for src_reg in regs_to_test.iter().copied() {

@@ -5,9 +5,9 @@ mod asm_test;
 #[cfg(test)]
 mod lang_test;
 
-pub mod asm;
 pub mod elf;
 pub mod err;
+pub mod high_asm;
 pub mod imm;
 pub mod keywords;
 pub mod lang;

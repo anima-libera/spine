@@ -1,6 +1,6 @@
 use crate::{
-	asm::small_uints::{Bit, U2, U3, U4},
 	elf::Layout,
+	high_asm::small_uints::{Bit, U2, U3, U4},
 	imm::{ImmRich, ImmRich32, Value32},
 	x86_64::X8664Instr,
 };
@@ -366,7 +366,7 @@ pub(crate) enum BaseSign {
 }
 
 #[derive(Debug)]
-pub(crate) enum AsmInstr {
+pub(crate) enum HighAsmInstr {
 	/// Sets the register to the immediate value,
 	/// being careful about the zero/sign extentions when needed.
 	MovImmToReg64 {
@@ -419,12 +419,12 @@ pub(crate) enum AsmInstr {
 	},
 }
 
-impl AsmInstr {
+impl HighAsmInstr {
 	/// Generates the machine code bytes for this assembly instruction.
 	/// We are given to know in advence the memory address of this instruction via `instr_address`.
 	pub(crate) fn to_machine_code(&self, layout: &Layout, instr_address: usize) -> Vec<X8664Instr> {
 		match self {
-			AsmInstr::MovImmToReg64 { imm_src, reg_dst } => {
+			HighAsmInstr::MovImmToReg64 { imm_src, reg_dst } => {
 				if imm_src.is_value_zero() {
 					vec![X8664Instr::XorRegOrMem32ToReg32 {
 						src: RegOrMem32::Reg32(reg_dst.to_32()),
@@ -497,7 +497,7 @@ impl AsmInstr {
 					}
 				}
 			},
-			AsmInstr::MovDerefReg64ToReg64 { src_size, src_sign, reg_as_ptr_src, reg_dst } => {
+			HighAsmInstr::MovDerefReg64ToReg64 { src_size, src_sign, reg_as_ptr_src, reg_dst } => {
 				assert!(
 					*reg_as_ptr_src != Reg64::Rsp && *reg_as_ptr_src != Reg64::Rbp,
 					"The addressing forms with the ModR/M byte look a bit funky \
@@ -535,7 +535,7 @@ impl AsmInstr {
 				};
 				vec![instr]
 			},
-			AsmInstr::MovReg64ToDerefReg64 { dst_size, reg_src, reg_as_ptr_dst } => {
+			HighAsmInstr::MovReg64ToDerefReg64 { dst_size, reg_src, reg_as_ptr_dst } => {
 				assert!(
 					*reg_as_ptr_dst != Reg64::Rsp && *reg_as_ptr_dst != Reg64::Rbp,
 					"The addressing forms with the ModR/M byte look a bit funky \
@@ -560,18 +560,18 @@ impl AsmInstr {
 				};
 				vec![instr]
 			},
-			AsmInstr::PushReg64 { reg_src } => vec![X8664Instr::PushReg64(*reg_src)],
-			AsmInstr::PopToReg64 { reg_dst } => vec![X8664Instr::PopReg64(*reg_dst)],
-			AsmInstr::AddReg64ToReg64 { reg_src, reg_dst } => {
+			HighAsmInstr::PushReg64 { reg_src } => vec![X8664Instr::PushReg64(*reg_src)],
+			HighAsmInstr::PopToReg64 { reg_dst } => vec![X8664Instr::PopReg64(*reg_dst)],
+			HighAsmInstr::AddReg64ToReg64 { reg_src, reg_dst } => {
 				vec![X8664Instr::AddReg64ToRegOrMem64 {
 					src: *reg_src,
 					dst: RegOrMem64::Reg64(*reg_dst),
 				}]
 			},
-			AsmInstr::Syscall => vec![X8664Instr::Syscall],
-			AsmInstr::Illegal => vec![X8664Instr::Ud2],
-			AsmInstr::Label { .. } => vec![],
-			AsmInstr::JumpToLabel { label_name } => {
+			HighAsmInstr::Syscall => vec![X8664Instr::Syscall],
+			HighAsmInstr::Illegal => vec![X8664Instr::Ud2],
+			HighAsmInstr::Label { .. } => vec![],
+			HighAsmInstr::JumpToLabel { label_name } => {
 				// The (relative) (signed) displacement is from the address of
 				// the instruction that follows the jump instruction.
 				let next_instr_address = instr_address + self.machine_code_size();
@@ -585,7 +585,7 @@ impl AsmInstr {
 	// TODO: make the size and the instr emitting at the same place! its duplicated logic! aaaaa
 	pub(crate) fn machine_code_size(&self) -> usize {
 		match self {
-			AsmInstr::MovImmToReg64 { imm_src, reg_dst } => {
+			HighAsmInstr::MovImmToReg64 { imm_src, reg_dst } => {
 				let need_rex_r_bit = reg_dst.id_higher_bit() == Bit::_1;
 				if imm_src.is_value_zero() {
 					// `XOR r32, r/m32`
@@ -615,7 +615,7 @@ impl AsmInstr {
 					}
 				}
 			},
-			AsmInstr::MovDerefReg64ToReg64 { src_size, src_sign, reg_as_ptr_src, reg_dst } => {
+			HighAsmInstr::MovDerefReg64ToReg64 { src_size, src_sign, reg_as_ptr_src, reg_dst } => {
 				match (src_size, src_sign) {
 					(BaseSize::Size8, _) => 4,
 					(BaseSize::Size32, BaseSign::Unsigned) => {
@@ -626,20 +626,20 @@ impl AsmInstr {
 					_ => 3,
 				}
 			},
-			AsmInstr::MovReg64ToDerefReg64 { reg_src, reg_as_ptr_dst, .. } => {
+			HighAsmInstr::MovReg64ToDerefReg64 { reg_src, reg_as_ptr_dst, .. } => {
 				let need_rex_r_bit =
 					reg_src.id_higher_bit() == Bit::_1 || reg_as_ptr_dst.id_higher_bit() == Bit::_1;
 				2 + if need_rex_r_bit { 1 } else { 0 }
 			},
-			AsmInstr::AddReg64ToReg64 { .. } => 3,
-			AsmInstr::PushReg64 { reg_src: reg } | AsmInstr::PopToReg64 { reg_dst: reg } => {
+			HighAsmInstr::AddReg64ToReg64 { .. } => 3,
+			HighAsmInstr::PushReg64 { reg_src: reg } | HighAsmInstr::PopToReg64 { reg_dst: reg } => {
 				let need_rex_r_bit = reg.id_higher_bit() == Bit::_1;
 				1 + if need_rex_r_bit { 1 } else { 0 }
 			},
-			AsmInstr::Syscall => 2,
-			AsmInstr::Illegal => 2,
-			AsmInstr::Label { .. } => 0,
-			AsmInstr::JumpToLabel { .. } => 5,
+			HighAsmInstr::Syscall => 2,
+			HighAsmInstr::Illegal => 2,
+			HighAsmInstr::Label { .. } => 0,
+			HighAsmInstr::JumpToLabel { .. } => 5,
 		}
 	}
 }

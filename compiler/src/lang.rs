@@ -4,7 +4,6 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::asm::{AsmInstr, Reg64};
 use crate::elf::Binary;
 use crate::err::{
 	ArbitraryRadixMissingRadixNumber, ArbitraryRadixNumberInvalidDigit,
@@ -19,6 +18,7 @@ use crate::err::{
 	IntegerLiteralValueOutOfRange, StringLiteralMissingClosingQuote, UnexpectedCharacter,
 	UnknownRadixPrefixLetter,
 };
+use crate::high_asm::{HighAsmInstr, Reg64};
 use crate::imm::{ImmRich, ImmRich64};
 use crate::keywords::{DEFAULT_KEYWORDS, KeywordWhich};
 use crate::src::{Pos, Reader, SourceCode, Span};
@@ -1573,7 +1573,7 @@ pub fn compile_to_low_level(program: &HighProgram) -> LowProgram {
 pub fn compile_to_binary(program: &LowProgram) -> Binary {
 	let mut bin = Binary::new();
 
-	use AsmInstr::*;
+	use HighAsmInstr::*;
 
 	for statement in program.statements.iter() {
 		match statement {

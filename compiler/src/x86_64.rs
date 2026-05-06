@@ -1,5 +1,5 @@
 use crate::{
-	asm::{
+	high_asm::{
 		Reg8, Reg32, Reg64, RegOrMem8, RegOrMem32, RegOrMem64, Rel32, separate_bit_b_in_bxxx,
 		small_uints::{Bit, U2, U3, U4},
 	},
@@ -523,7 +523,7 @@ impl std::fmt::Display for X8664Instr {
 }
 
 mod rex_prefix {
-	use crate::asm::small_uints::{Bit, U4};
+	use crate::high_asm::small_uints::{Bit, U4};
 
 	/// REX prefix. It is optional, one byte, and comes just before the opcode bytes (last prefix).
 	///
@@ -601,7 +601,7 @@ mod rex_prefix {
 }
 
 mod modrm_byte {
-	use crate::asm::small_uints::{U2, U3};
+	use crate::high_asm::small_uints::{U2, U3};
 
 	// TODO: Add SIB byte thing, and couple it with Mod R/M byte thing, they make more sense together!
 
@@ -658,7 +658,7 @@ impl OpcodeOneByte {
 }
 
 mod opcode_with_reg {
-	use crate::asm::small_uints::U3;
+	use crate::high_asm::small_uints::U3;
 
 	/// Opcode that fits in 5 bits and the 3 bits (lower bits) of a register code, in one byte.
 	///

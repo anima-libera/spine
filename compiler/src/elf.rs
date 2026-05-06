@@ -1,6 +1,6 @@
 use std::{collections::HashMap, os::unix::fs::PermissionsExt};
 
-use crate::{asm::AsmInstr, x86_64::X8664Instr};
+use crate::{high_asm::HighAsmInstr, x86_64::X8664Instr};
 
 struct ByteBuffer {
 	bytes: Vec<u8>,
@@ -51,7 +51,7 @@ pub struct Binary {
 	/// (but it actually ends up at some address that is this value added to
 	/// the offset of the data in the binary).
 	data_segment_address_without_offset: usize,
-	pub(crate) asm_instrs: Vec<AsmInstr>,
+	pub(crate) asm_instrs: Vec<HighAsmInstr>,
 	pub(crate) data_bytes: Vec<u8>,
 }
 
@@ -82,7 +82,7 @@ impl Binary {
 		let mut code_label_address_table = HashMap::new();
 		let mut instr_address = code_segment_address;
 		for asm_instr in self.asm_instrs.iter() {
-			if let AsmInstr::Label { name } = asm_instr {
+			if let HighAsmInstr::Label { name } = asm_instr {
 				code_label_address_table.insert(name.clone(), instr_address);
 			}
 			instr_address += asm_instr.machine_code_size();
@@ -154,7 +154,7 @@ impl Binary {
 		self
 			.asm_instrs
 			.iter()
-			.map(AsmInstr::machine_code_size)
+			.map(HighAsmInstr::machine_code_size)
 			.sum()
 	}
 
