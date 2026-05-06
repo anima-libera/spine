@@ -2,7 +2,7 @@ use crate::{
 	high::{HighInstruction, HighProgram, HighScopeStack, HighStatement, WipDef},
 	keywords::KeywordWhich,
 	low::{LowInstr, LowProgram, LowStatement},
-	parse_to_high::{CharacterLiteral, IntegerLiteral, Keyword, StringLiteral},
+	tokens::{CharacterLiteral, IntegerLiteral, Keyword, StringLiteral},
 };
 
 pub(crate) struct OperandAndReturnTypes {

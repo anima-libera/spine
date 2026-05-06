@@ -24,8 +24,8 @@ use crate::highasm::{HighAsmInstr, Reg64};
 use crate::imm::{ImmRich, ImmRich64};
 use crate::keywords::{DEFAULT_KEYWORDS, KeywordWhich};
 use crate::low::{LowInstr, LowProgram, LowStatement};
-use crate::parse_to_high::{CharacterLiteral, IntegerLiteral, Keyword, StringLiteral};
 use crate::src::{Pos, Reader, SourceCode, Span};
+use crate::tokens::{CharacterLiteral, IntegerLiteral, Keyword, StringLiteral};
 
 pub fn low_to_binary_plan(program: &LowProgram) -> HighAsmBinaryPlan {
 	let mut bin = HighAsmBinaryPlan::new();

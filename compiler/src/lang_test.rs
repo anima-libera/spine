@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-	elf::chmod_x, high_to_low::high_to_low, low_to_highasm::low_to_binary_plan,
-	parse_to_high::parse_to_high, src::SourceCode,
+	elf::chmod_x, high_to_low::high_to_low, low_to_highasm::low_to_binary_plan, src::SourceCode,
+	tokens_to_high::parse_to_high,
 };
 
 fn compile_and_outputs(unique_binary_name: &str, code: impl Into<String>) -> String {

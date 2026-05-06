@@ -3,8 +3,8 @@ use std::os::unix::process::ExitStatusExt;
 use std::{process::ExitCode, sync::Arc};
 
 use spine_compiler::{
-	elf::chmod_x, high_to_low::high_to_low, low_to_highasm::low_to_binary_plan,
-	parse_to_high::parse_to_high, src::SourceCode,
+	elf::chmod_x, high_to_low::high_to_low, low_to_highasm::low_to_binary_plan, src::SourceCode,
+	tokens_to_high::parse_to_high,
 };
 #[cfg(feature = "lsp")]
 use spine_language_server::run_lsp;

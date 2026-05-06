@@ -4,8 +4,8 @@ use crate::{
 	err::UnexpectedCharacter,
 	high_to_low::{OperandAndReturnTypes, SpineType},
 	keywords::KeywordWhich,
-	parse_to_high::{CharacterLiteral, Identifier, IntegerLiteral, Keyword, StringLiteral},
 	src::{Pos, SourceCode, Span},
+	tokens::{CharacterLiteral, Identifier, IntegerLiteral, Keyword, StringLiteral},
 };
 
 #[derive(Debug)]

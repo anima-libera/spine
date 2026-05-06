@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex};
 
 use spine_compiler::err::{CompilationError, CompilationWarning};
 use spine_compiler::keywords::{DEFAULT_KEYWORDS, KeywordWhich};
-use spine_compiler::parse_to_high::{
-	Comment, IntegerLiteral, Keyword, Token, list_tokens_except_whitespace, parse_to_high,
-};
 use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16, Span};
+use spine_compiler::src_to_tokens::list_tokens_except_whitespace;
+use spine_compiler::tokens::{Comment, IntegerLiteral, Keyword, Token};
+use spine_compiler::tokens_to_high::parse_to_high;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};

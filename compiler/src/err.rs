@@ -2,12 +2,12 @@
 
 use crate::{
 	high::{HighInstruction, HighProgram, HighStatement},
-	parse_to_high::{
+	src::{Pos, Span},
+	tokens::{
 		ArbitraryRadixNumberError, CharacterEscapeError, CharacterLiteral, CharacterLiteralError,
 		Identifier, IntegerLiteral, IntegerLiteralValueError, RadixPrefix, RadixPrefixError,
 		RadixPrefixKindAndValue, StringLiteralError,
 	},
-	src::{Pos, Span},
 };
 
 #[derive(Debug, Clone)]
