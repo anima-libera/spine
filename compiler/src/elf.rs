@@ -118,7 +118,9 @@ impl Binary {
 			instr_address += asm_instr.machine_code_size();
 
 			if expected_size != actual_size {
-				panic!("machine code size mismatch for instr {:?}", asm_instr);
+				panic!(
+					"machine code size mismatch for instr {asm_instr:?} (expected {expected_size}, got {actual_size})"
+				);
 			}
 		}
 		machine_code_bytes

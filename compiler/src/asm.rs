@@ -524,11 +524,11 @@ impl AsmInstr {
 						src: RegOrMem32::DerefReg32(reg_as_ptr_src.to_32()),
 						dst: *reg_dst,
 					},
-					(BaseSize::Size8, BaseSign::Unsigned) => X8664Instr::MovsxRegOrMem8ToReg64 {
+					(BaseSize::Size8, BaseSign::Unsigned) => X8664Instr::MovzxRegOrMem8ToReg64 {
 						src: RegOrMem8::DerefReg8(reg_as_ptr_src.to_8()),
 						dst: *reg_dst,
 					},
-					(BaseSize::Size8, BaseSign::Signed) => X8664Instr::MovzxRegOrMem8ToReg64 {
+					(BaseSize::Size8, BaseSign::Signed) => X8664Instr::MovsxRegOrMem8ToReg64 {
 						src: RegOrMem8::DerefReg8(reg_as_ptr_src.to_8()),
 						dst: *reg_dst,
 					},
@@ -615,11 +615,22 @@ impl AsmInstr {
 					}
 				}
 			},
-			AsmInstr::MovDerefReg64ToReg64 { src_size, .. } => match src_size {
-				BaseSize::Size8 => 4,
-				_ => 3,
+			AsmInstr::MovDerefReg64ToReg64 { src_size, src_sign, reg_as_ptr_src, reg_dst } => {
+				match (src_size, src_sign) {
+					(BaseSize::Size8, _) => 4,
+					(BaseSize::Size32, BaseSign::Unsigned) => {
+						let need_rex_r_bit = reg_as_ptr_src.id_higher_bit() == Bit::_1
+							|| reg_dst.id_higher_bit() == Bit::_1;
+						2 + if need_rex_r_bit { 1 } else { 0 }
+					},
+					_ => 3,
+				}
 			},
-			AsmInstr::MovReg64ToDerefReg64 { .. } => 3,
+			AsmInstr::MovReg64ToDerefReg64 { reg_src, reg_as_ptr_dst, .. } => {
+				let need_rex_r_bit =
+					reg_src.id_higher_bit() == Bit::_1 || reg_as_ptr_dst.id_higher_bit() == Bit::_1;
+				2 + if need_rex_r_bit { 1 } else { 0 }
+			},
 			AsmInstr::AddReg64ToReg64 { .. } => 3,
 			AsmInstr::PushReg64 { reg_src: reg } | AsmInstr::PopToReg64 { reg_dst: reg } => {
 				let need_rex_r_bit = reg.id_higher_bit() == Bit::_1;

@@ -432,7 +432,7 @@ impl X8664Instr {
 			X8664Instr::JmpRel32(offset) => {
 				let opcode = Opcode::from_byte(0xe9);
 				let imm = Some(Imm::Imm32(Imm32(offset.to_u32())));
-				X8664InstrAsMachineCode { rex: None, opcode, modrm: None, imm: None }
+				X8664InstrAsMachineCode { rex: None, opcode, modrm: None, imm }
 			},
 		}
 	}
