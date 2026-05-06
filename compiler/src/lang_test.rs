@@ -35,7 +35,7 @@ fn compile_and_outputs(unique_binary_name: &str, code: impl Into<String>) -> Str
 #[test]
 fn print_string() {
 	let name = "print_string";
-	let code = "kwps \"hello\\n\"; kwexit;";
+	let code = "ps \"hello\\n\"; exit;";
 	let expected_output = "hello\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -43,7 +43,7 @@ fn print_string() {
 #[test]
 fn print_char() {
 	let name = "print_char";
-	let code = "kwpc 'a'; kwpc '\\n'; kwexit;";
+	let code = "pc 'a'; pc '\\n'; exit;";
 	let expected_output = "a\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -51,7 +51,7 @@ fn print_char() {
 #[test]
 fn print_char_from_integer_decimal() {
 	let name = "print_char_from_integer_decimal";
-	let code = "kwpc 97; kwpc '\\n'; kwexit;";
+	let code = "pc 97; pc '\\n'; exit;";
 	let expected_output = "a\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -59,7 +59,7 @@ fn print_char_from_integer_decimal() {
 #[test]
 fn print_char_from_add() {
 	let name = "print_char_from_add";
-	let code = "kwpc kwadd 90 7; kwpc '\\n'; kwexit;";
+	let code = "pc add 90 7; pc '\\n'; exit;";
 	let expected_output = "a\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -67,7 +67,7 @@ fn print_char_from_add() {
 #[test]
 fn print_char_from_integer_hexadecimal() {
 	let name = "print_char_from_integer_hexadecimal";
-	let code = "kwpc 0x61; kwpc '\\n'; kwexit;";
+	let code = "pc 0x61; pc '\\n'; exit;";
 	let expected_output = "a\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -75,7 +75,7 @@ fn print_char_from_integer_hexadecimal() {
 #[test]
 fn print_char_from_integer_binary() {
 	let name = "print_char_from_integer_binary";
-	let code = "kwpc 0b1100001; kwpc '\\n'; kwexit;";
+	let code = "pc 0b1100001; pc '\\n'; exit;";
 	let expected_output = "a\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -83,7 +83,7 @@ fn print_char_from_integer_binary() {
 #[test]
 fn print_char_from_integer_arbitrary_radix() {
 	let name = "print_char_from_integer_arbitrary_radix";
-	let code = "kwpc 0r{8}141; kwpc '\\n'; kwexit;";
+	let code = "pc 0r{8}141; pc '\\n'; exit;";
 	let expected_output = "a\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -91,7 +91,7 @@ fn print_char_from_integer_arbitrary_radix() {
 #[test]
 fn print_char_from_escape_two_hexadecimal_digits() {
 	let name = "print_char_from_escape_two_hexadecimal_digits";
-	let code = "kwpc '\\x61'; kwpc '\\n'; kwexit;";
+	let code = "pc '\\x61'; pc '\\n'; exit;";
 	let expected_output = "a\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -99,7 +99,7 @@ fn print_char_from_escape_two_hexadecimal_digits() {
 #[test]
 fn print_char_from_escape_any_hexadecimal_digits() {
 	let name = "print_char_from_escape_any_hexadecimal_digits";
-	let code = "kwpc '\\u{61}'; kwpc '\\n'; kwexit;";
+	let code = "pc '\\u{61}'; pc '\\n'; exit;";
 	let expected_output = "a\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -107,7 +107,7 @@ fn print_char_from_escape_any_hexadecimal_digits() {
 #[test]
 fn print_char_from_escape_any_decimal_digits() {
 	let name = "print_char_from_escape_any_decimal_digits";
-	let code = "kwpc '\\d{97}'; kwpc '\\n'; kwexit;";
+	let code = "pc '\\d{97}'; pc '\\n'; exit;";
 	let expected_output = "a\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -115,7 +115,7 @@ fn print_char_from_escape_any_decimal_digits() {
 #[test]
 fn print_string_with_manual_syscall() {
 	let name = "print_string_with_manual_syscall";
-	let code = "kwdi kwdi kwsys 0 0 0 6 kwcpi kwdi \"hello\\n\" 1 1; kwexit;";
+	let code = "di di sys 0 0 0 6 cpi di \"hello\\n\" 1 1; exit;";
 	let expected_output = "hello\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
@@ -123,7 +123,7 @@ fn print_string_with_manual_syscall() {
 #[test]
 fn addition() {
 	let name = "addition";
-	let code = "kwpc kwadd 'a' 1; kwpc '\\n'; kwexit;";
+	let code = "pc add 'a' 1; pc '\\n'; exit;";
 	let expected_output = "b\n";
 	assert_eq!(compile_and_outputs(name, code), expected_output);
 }
