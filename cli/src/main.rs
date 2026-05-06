@@ -3,9 +3,8 @@ use std::os::unix::process::ExitStatusExt;
 use std::{process::ExitCode, sync::Arc};
 
 use spine_compiler::{
-	elf::chmod_x,
-	lang::{compile_to_binary, compile_to_low_level, parse},
-	src::SourceCode,
+	elf::chmod_x, high_to_low::high_to_low, low_to_highasm::low_to_binary_plan,
+	parse_to_high::parse_to_high, src::SourceCode,
 };
 #[cfg(feature = "lsp")]
 use spine_language_server::run_lsp;
@@ -66,7 +65,7 @@ fn main() -> ExitCode {
 	if args.verbose {
 		println!("Parsing to high level internal representation");
 	}
-	let high_program = parse(Arc::clone(&source_code));
+	let high_program = parse_to_high(Arc::clone(&source_code));
 
 	let (errors, warnings) = high_program.get_errors_and_warnings();
 	if !errors.is_empty() {
@@ -88,22 +87,22 @@ fn main() -> ExitCode {
 	if args.verbose {
 		println!("Compiling to low level internal representation");
 	}
-	let low_program = compile_to_low_level(&high_program);
+	let low_program = high_to_low(&high_program);
 
 	if args.verbose {
 		println!("Compiling to almost machine code");
 	}
-	let bin = compile_to_binary(&low_program);
+	let binary_plan = low_to_binary_plan(&low_program);
 
 	if args.verbose {
 		println!("Generating the ELF x86_64 executable and the machine code");
 	}
-	let elf = bin.to_binary();
+	let elf = binary_plan.to_binary();
 
 	if args.print_machine_code && !args.print_asm {
 		// Just print the machine code, raw, no annotations.
 		println!("Machine code:");
-		for byte in bin.code_segment_binary_machine_code() {
+		for byte in binary_plan.code_segment_binary_machine_code() {
 			print!("{byte:02x}");
 		}
 		println!();
@@ -112,7 +111,7 @@ fn main() -> ExitCode {
 	if args.print_asm && !args.print_machine_code {
 		// Just print the assembly-ish, without the corresponding machine code.
 		println!("Assembly-ish representation of machine code:");
-		for (_instr_binary, instr) in bin.code_segment_binary_and_asm_machine_code() {
+		for (_instr_binary, instr) in binary_plan.code_segment_binary_and_asm_machine_code() {
 			println!("{instr}");
 		}
 	}
@@ -120,7 +119,7 @@ fn main() -> ExitCode {
 	if args.print_machine_code && args.print_asm {
 		// Print the machine code annotated with corresponding assembly-ish instructions.
 		println!("Machine code and assembly-ish:");
-		let instr_vec = bin.code_segment_binary_and_asm_machine_code();
+		let instr_vec = binary_plan.code_segment_binary_and_asm_machine_code();
 		if let Some(instr_binary_max) = instr_vec
 			.iter()
 			.map(|(instr_binary, _instr)| instr_binary.len())

@@ -1,11 +1,11 @@
 //! Compile-time errors and warnings.
 
 use crate::{
-	lang::{
+	high::{HighInstruction, HighProgram, HighStatement},
+	parse_to_high::{
 		ArbitraryRadixNumberError, CharacterEscapeError, CharacterLiteral, CharacterLiteralError,
-		HighInstruction, HighProgram, HighStatement, Identifier, IntegerLiteral,
-		IntegerLiteralValueError, RadixPrefix, RadixPrefixError, RadixPrefixKindAndValue,
-		StringLiteralError,
+		Identifier, IntegerLiteral, IntegerLiteralValueError, RadixPrefix, RadixPrefixError,
+		RadixPrefixKindAndValue, StringLiteralError,
 	},
 	src::{Pos, Span},
 };

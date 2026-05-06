@@ -66,5 +66,4 @@
 ## Internal refactorings
 - encapsulate lsp crate pos and range types to force the use of proper conversions to our types
 - move completion stuff out of the lsp method, and factorize stuff
-- move x86_64 specific stuff to its own module
 - machine code size in bytes for an instr should not be a separate function than machine code emitting

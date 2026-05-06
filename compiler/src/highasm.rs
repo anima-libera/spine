@@ -1,6 +1,6 @@
 use crate::{
 	elf::Layout,
-	high_asm::small_uints::{Bit, U2, U3, U4},
+	highasm::small_uints::{Bit, U2, U3, U4},
 	imm::{ImmRich, ImmRich32, Value32},
 	x86_64::X8664Instr,
 };
@@ -343,6 +343,9 @@ pub struct Rel32(i32);
 impl Rel32 {
 	pub(crate) fn to_u32(self) -> u32 {
 		self.0.cast_unsigned()
+	}
+	pub(crate) fn to_i32(self) -> i32 {
+		self.0
 	}
 }
 

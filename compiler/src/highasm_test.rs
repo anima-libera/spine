@@ -1,12 +1,12 @@
 use std::time::Duration;
 
-use crate::elf::{Binary, chmod_x};
-use crate::high_asm::{BaseSign, BaseSize, HighAsmInstr, Reg64};
+use crate::elf::{HighAsmBinaryPlan, chmod_x};
+use crate::highasm::{BaseSign, BaseSize, HighAsmInstr, Reg64};
 use crate::imm::{ImmRich, ImmRich8, ImmRich32, ImmRich64, Value8, Value32, Value64};
 
 #[test]
 fn some_assembly_instructions() {
-	let mut bin = Binary::new();
+	let mut bin = HighAsmBinaryPlan::new();
 
 	let message = b"hewwo :3\n";
 	let message_offset_in_data = bin.data_bytes.len();
@@ -17,7 +17,7 @@ fn some_assembly_instructions() {
 	bin.data_bytes.extend(value);
 
 	use HighAsmInstr::*;
-	bin.asm_instrs = vec![
+	bin.high_asm_instrs = vec![
 		// Kinda do *(uint8_t*)message = (-1)+(*(uint8_t*)value); so we sould see "mewwo :3"
 		MovImmToReg64 {
 			imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
@@ -135,7 +135,7 @@ fn some_assembly_instructions() {
 
 #[test]
 fn mov_imm_to_reg64_all_variants() {
-	let mut bin = Binary::new();
+	let mut bin = HighAsmBinaryPlan::new();
 
 	let regs_to_test = [
 		Reg64::Rax,
@@ -159,7 +159,7 @@ fn mov_imm_to_reg64_all_variants() {
 
 	// We try all the `MovImmToReg64`s that we can think of.
 	for reg in regs_to_test.iter().copied() {
-		bin.asm_instrs.extend([
+		bin.high_asm_instrs.extend([
 			MovImmToReg64 {
 				imm_src: ImmRich::Imm8(ImmRich8::Value(Value8::Signed(-5))),
 				reg_dst: reg,
@@ -195,7 +195,7 @@ fn mov_imm_to_reg64_all_variants() {
 
 	// The results were all pushed on the stack,
 	// now we extract them to be confronted to the expected results.
-	bin.asm_instrs.extend([
+	bin.high_asm_instrs.extend([
 		// Write syscall
 		MovImmToReg64 {
 			imm_src: ImmRich::whatever_value(1),
@@ -278,7 +278,7 @@ fn mov_imm_to_reg64_all_variants() {
 
 #[test]
 fn mov_deref_reg_64_to_reg_64_all_variants() {
-	let mut bin = Binary::new();
+	let mut bin = HighAsmBinaryPlan::new();
 
 	let value = [0xfa, 0xf1, 0xfb, 0xf2, 0xfc, 0xf3, 0xfd, 0xf4];
 	let value_offset_in_data = bin.data_bytes.len();
@@ -306,7 +306,7 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 
 	// We try all the `MovDerefReg64ToReg64`s that we can think of.
 	for src_reg in regs_to_test.iter().copied() {
-		bin.asm_instrs.extend([MovImmToReg64 {
+		bin.high_asm_instrs.extend([MovImmToReg64 {
 			imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
 				offset_in_data_segment: value_offset_in_data as u64,
 			}),
@@ -318,7 +318,7 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 				continue;
 			}
 
-			bin.asm_instrs.extend([
+			bin.high_asm_instrs.extend([
 				MovDerefReg64ToReg64 {
 					src_size: BaseSize::Size8,
 					src_sign: BaseSign::Signed,
@@ -369,7 +369,7 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 
 	// The results were all pushed on the stack,
 	// now we extract them to be confronted to the expected results.
-	bin.asm_instrs.extend([
+	bin.high_asm_instrs.extend([
 		// Write syscall
 		MovImmToReg64 {
 			imm_src: ImmRich::whatever_value(1),

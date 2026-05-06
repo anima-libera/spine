@@ -1,6 +1,6 @@
 use std::{collections::HashMap, os::unix::fs::PermissionsExt};
 
-use crate::{high_asm::HighAsmInstr, x86_64::X8664Instr};
+use crate::{highasm::HighAsmInstr, x86_64::X8664Instr};
 
 struct ByteBuffer {
 	bytes: Vec<u8>,
@@ -41,7 +41,7 @@ byte_buffer_fn_write!(write_u64, u64);
 // The offset in the binary and the address in the memory are related but are not to be confused
 // with each other. These may be refered to as the *offset* and the *address* respectively.
 
-pub struct Binary {
+pub struct HighAsmBinaryPlan {
 	entry_point_offset_in_code: usize,
 	/// Address in memory of where we want to put the code
 	/// (but it actually ends up at some address that is this value added to
@@ -51,7 +51,7 @@ pub struct Binary {
 	/// (but it actually ends up at some address that is this value added to
 	/// the offset of the data in the binary).
 	data_segment_address_without_offset: usize,
-	pub(crate) asm_instrs: Vec<HighAsmInstr>,
+	pub(crate) high_asm_instrs: Vec<HighAsmInstr>,
 	pub(crate) data_bytes: Vec<u8>,
 }
 
@@ -64,31 +64,32 @@ pub(crate) struct Layout {
 	pub(crate) code_label_address_table: HashMap<String, usize>,
 }
 
-impl Binary {
-	pub(crate) fn new() -> Binary {
-		Binary {
+impl HighAsmBinaryPlan {
+	pub(crate) fn new() -> HighAsmBinaryPlan {
+		HighAsmBinaryPlan {
 			entry_point_offset_in_code: 0,
 			code_segment_address_without_offset: 0x400000, // Arbitrary for now, no reason.
 			data_segment_address_without_offset: 0x600000, // Arbitrary for now, no reason.
-			asm_instrs: vec![],
+			high_asm_instrs: vec![],
 			data_bytes: vec![],
 		}
 	}
 
 	pub(crate) fn layout(&self) -> Layout {
 		let code_segment_address =
-			self.code_segment_address_without_offset + Binary::CODE_OFFSET_IN_BINARY;
+			self.code_segment_address_without_offset + HighAsmBinaryPlan::CODE_OFFSET_IN_BINARY;
 
 		let mut code_label_address_table = HashMap::new();
 		let mut instr_address = code_segment_address;
-		for asm_instr in self.asm_instrs.iter() {
+		for asm_instr in self.high_asm_instrs.iter() {
 			if let HighAsmInstr::Label { name } = asm_instr {
 				code_label_address_table.insert(name.clone(), instr_address);
 			}
 			instr_address += asm_instr.machine_code_size();
 		}
 
-		let data_offset_in_binary = Binary::CODE_OFFSET_IN_BINARY + self.code_size_in_binary();
+		let data_offset_in_binary =
+			HighAsmBinaryPlan::CODE_OFFSET_IN_BINARY + self.code_size_in_binary();
 		let data_segment_address = self.data_segment_address_without_offset + data_offset_in_binary;
 
 		Layout {
@@ -103,7 +104,7 @@ impl Binary {
 		let layout = self.layout();
 		let mut instr_address = layout.code_segment_address;
 		let mut machine_code_bytes = Vec::new();
-		for asm_instr in self.asm_instrs.iter() {
+		for asm_instr in self.high_asm_instrs.iter() {
 			let expected_size = asm_instr.machine_code_size();
 			let mut actual_size = 0;
 
@@ -132,7 +133,7 @@ impl Binary {
 		let layout = self.layout();
 		let mut instr_address = layout.code_segment_address;
 		let mut instr_vec = Vec::new();
-		for asm_instr in self.asm_instrs.iter() {
+		for asm_instr in self.high_asm_instrs.iter() {
 			let expected_size = asm_instr.machine_code_size();
 			let mut actual_size = 0;
 
@@ -152,7 +153,7 @@ impl Binary {
 
 	fn code_size_in_binary(&self) -> usize {
 		self
-			.asm_instrs
+			.high_asm_instrs
 			.iter()
 			.map(HighAsmInstr::machine_code_size)
 			.sum()
@@ -170,7 +171,7 @@ impl Binary {
 	const PROGRAM_HEADER_TABLE_ENTRY_SIZE: usize = 0x38;
 	const PROGRAM_HEADER_TABLE_LENGTH: usize = 2; // Code and data are enough for us
 	const CODE_OFFSET_IN_BINARY: usize =
-		Binary::ELF_HEADER_SIZE + Binary::PROGRAM_HEADER_TABLE_ENTRY_SIZE * 2;
+		HighAsmBinaryPlan::ELF_HEADER_SIZE + HighAsmBinaryPlan::PROGRAM_HEADER_TABLE_ENTRY_SIZE * 2;
 
 	pub fn to_binary(&self) -> Vec<u8> {
 		let mut buf = ByteBuffer::new();
@@ -180,7 +181,7 @@ impl Binary {
 		// Beware, this is an ELF moment.
 		// 64 bits
 
-		let entry_point_address = Binary::CODE_OFFSET_IN_BINARY
+		let entry_point_address = HighAsmBinaryPlan::CODE_OFFSET_IN_BINARY
 			+ self.entry_point_offset_in_code
 			+ self.code_segment_address_without_offset;
 
@@ -196,16 +197,16 @@ impl Binary {
 		buf.write_u16(0x3e); // Target x86-64
 		buf.write_u32(1); // ELF format version (again??)
 		buf.write_u64(entry_point_address as u64); // Entry point address
-		buf.write_u64(Binary::ELF_HEADER_SIZE as u64); // Program header table offset in binary
+		buf.write_u64(HighAsmBinaryPlan::ELF_HEADER_SIZE as u64); // Program header table offset in binary
 		buf.write_u64(0); // Section header table offset in binary (we don't have one)
 		buf.write_u32(0); // Target architecture dependent flags
-		buf.write_u16(Binary::ELF_HEADER_SIZE as u16); // Size of this header
-		buf.write_u16(Binary::PROGRAM_HEADER_TABLE_ENTRY_SIZE as u16); // Size of a prog entry
-		buf.write_u16(Binary::PROGRAM_HEADER_TABLE_LENGTH as u16); // Number of prog entries in table
+		buf.write_u16(HighAsmBinaryPlan::ELF_HEADER_SIZE as u16); // Size of this header
+		buf.write_u16(HighAsmBinaryPlan::PROGRAM_HEADER_TABLE_ENTRY_SIZE as u16); // Size of a prog entry
+		buf.write_u16(HighAsmBinaryPlan::PROGRAM_HEADER_TABLE_LENGTH as u16); // Number of prog entries in table
 		buf.write_u16(0); // Size of a section header table entry (we don't have one)
 		buf.write_u16(0); // Number of entries in section header table
 		buf.write_u16(0); // Index of the section header table entry with the section names
-		assert_eq!(buf.bytes.len(), Binary::ELF_HEADER_SIZE);
+		assert_eq!(buf.bytes.len(), HighAsmBinaryPlan::ELF_HEADER_SIZE);
 
 		// Program header table
 		let mut program_header_table_entry_count = 0;
@@ -214,7 +215,7 @@ impl Binary {
 		const FLAG_EXECUTABLE: u32 = 1 << 2;
 		{
 			// Code segment
-			let offset = Binary::CODE_OFFSET_IN_BINARY as u64;
+			let offset = HighAsmBinaryPlan::CODE_OFFSET_IN_BINARY as u64;
 			let address_without_offset = self.code_segment_address_without_offset as u64;
 			let address = address_without_offset + offset;
 			let size = self.code_size_in_binary() as u64;
@@ -229,13 +230,14 @@ impl Binary {
 			buf.write_u64(0); // Alignment (0 means no alignment)
 			assert_eq!(
 				buf.bytes.len(),
-				Binary::ELF_HEADER_SIZE + Binary::PROGRAM_HEADER_TABLE_ENTRY_SIZE
+				HighAsmBinaryPlan::ELF_HEADER_SIZE + HighAsmBinaryPlan::PROGRAM_HEADER_TABLE_ENTRY_SIZE
 			);
 		}
 		program_header_table_entry_count += 1;
 		{
 			// Data segment
-			let offset = (Binary::CODE_OFFSET_IN_BINARY + self.code_size_in_binary()) as u64;
+			let offset =
+				(HighAsmBinaryPlan::CODE_OFFSET_IN_BINARY + self.code_size_in_binary()) as u64;
 			let address_without_offset = self.data_segment_address_without_offset as u64;
 			let address = address_without_offset + offset;
 			let size = self.data_size_in_binary() as u64;
@@ -250,17 +252,18 @@ impl Binary {
 			buf.write_u64(0); // Alignment (0 means no alignment)
 			assert_eq!(
 				buf.bytes.len(),
-				Binary::ELF_HEADER_SIZE + Binary::PROGRAM_HEADER_TABLE_ENTRY_SIZE * 2
+				HighAsmBinaryPlan::ELF_HEADER_SIZE
+					+ HighAsmBinaryPlan::PROGRAM_HEADER_TABLE_ENTRY_SIZE * 2
 			);
 		}
 		program_header_table_entry_count += 1;
 		assert_eq!(
 			program_header_table_entry_count,
-			Binary::PROGRAM_HEADER_TABLE_LENGTH
+			HighAsmBinaryPlan::PROGRAM_HEADER_TABLE_LENGTH
 		);
 
 		// Code
-		assert_eq!(buf.bytes.len(), Binary::CODE_OFFSET_IN_BINARY);
+		assert_eq!(buf.bytes.len(), HighAsmBinaryPlan::CODE_OFFSET_IN_BINARY);
 		let machine_code = self.code_segment_binary_machine_code();
 		assert_eq!(machine_code.len(), self.code_size_in_binary());
 		buf.write_bytes(&machine_code);

@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use spine_compiler::err::{CompilationError, CompilationWarning};
 use spine_compiler::keywords::{DEFAULT_KEYWORDS, KeywordWhich};
-use spine_compiler::lang::{
-	Comment, IntegerLiteral, Keyword, Token, list_tokens_except_whitespace,
+use spine_compiler::parse_to_high::{
+	Comment, IntegerLiteral, Keyword, Token, list_tokens_except_whitespace, parse_to_high,
 };
 use spine_compiler::src::{LineNumber, LspPositionUtf16, LspRangeUtf16, Span};
 use tower_lsp_server::jsonrpc::Result;
@@ -15,7 +15,7 @@ use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
 use spine_compiler::{
-	lang::{HighInstruction, HighProgram, HighStatement, parse},
+	high::{HighInstruction, HighProgram, HighStatement},
 	src::{LspPosition, LspRange, Pos, SourceCode},
 };
 
@@ -37,7 +37,7 @@ impl SpineLanguageServer {
 			Some(Arc::clone(source_file))
 		} else {
 			let source = Arc::new(SourceCode::from_file(&source_file_path)?);
-			let high_program = parse(Arc::clone(&source));
+			let high_program = parse_to_high(Arc::clone(&source));
 			let tokens = list_tokens_except_whitespace(Arc::clone(&source));
 			let source_file = Arc::new(SourceFileData { source, high_program, tokens });
 			source_file_lock
@@ -192,7 +192,7 @@ impl LanguageServer for SpineLanguageServer {
 			return;
 		};
 		let source = Arc::new(source);
-		let high_program = parse(Arc::clone(&source));
+		let high_program = parse_to_high(Arc::clone(&source));
 		let tokens = list_tokens_except_whitespace(Arc::clone(&source));
 		let source_file = Arc::new(SourceFileData { source, high_program, tokens });
 		self
@@ -216,7 +216,7 @@ impl LanguageServer for SpineLanguageServer {
 		let source_text = params.content_changes.first().unwrap().text.clone();
 		let name = source_file_path.to_str().unwrap().to_string();
 		let source = Arc::new(SourceCode::from_string(source_text, name));
-		let high_program = parse(Arc::clone(&source));
+		let high_program = parse_to_high(Arc::clone(&source));
 		let tokens = list_tokens_except_whitespace(Arc::clone(&source));
 		let source_file = Arc::new(SourceFileData { source, high_program, tokens });
 		self
