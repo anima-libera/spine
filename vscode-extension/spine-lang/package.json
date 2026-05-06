@@ -44,8 +44,15 @@
 		"languages": [
 			{
 				"id": "spine",
-				"extensions": [".spine", ".spn", ".sp"],
-				"aliases": ["Spine", "sp"],
+				"extensions": [
+					".spine",
+					".spn",
+					".sp"
+				],
+				"aliases": [
+					"Spine",
+					"sp"
+				],
 				"filenames": [],
 				"configuration": "./language-configuration.json",
 				"icon": {
@@ -73,7 +80,9 @@
 			{
 				"language": "spine",
 				"scopes": {
-					"keywordDef": ["storage.type.function.spine"]
+					"keywordDef": [
+						"storage.type.function.spine"
+					]
 				}
 			}
 		],
@@ -98,14 +107,14 @@
 		"test": "vscode-test"
 	},
 	"devDependencies": {
-		"@types/vscode": "^1.100.0",
 		"@types/mocha": "^10.0.9",
-		"@types/node": "20.x",
+		"@types/node": "^20.19.39",
+		"@types/vscode": "^1.100.0",
 		"@typescript-eslint/eslint-plugin": "^8.53.0",
 		"@typescript-eslint/parser": "^8.53.0",
-		"eslint": "^9.39.2",
-		"typescript": "^5.9.3",
 		"@vscode/test-cli": "^0.0.12",
-		"@vscode/test-electron": "^2.5.2"
+		"@vscode/test-electron": "^2.5.2",
+		"eslint": "^9.39.2",
+		"typescript": "^5.9.3"
 	}
 }
