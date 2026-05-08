@@ -284,7 +284,7 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 	let value_offset_in_data = bin.data_bytes.len();
 	bin.data_bytes.extend(value);
 
-	let regs_to_test = [
+	let regs_to_test_src = [
 		Reg64::Rax,
 		Reg64::Rbx,
 		Reg64::Rcx,
@@ -301,11 +301,30 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 		Reg64::R14,
 		Reg64::R15,
 	];
+	let regs_to_test_dst = [
+		Reg64::Rax,
+		Reg64::Rbx,
+		Reg64::Rcx,
+		Reg64::Rdx,
+		Reg64::Rbp,
+		Reg64::Rdi,
+		Reg64::Rsi,
+		Reg64::R8,
+		Reg64::R9,
+		Reg64::R10,
+		Reg64::R11,
+		Reg64::R12,
+		Reg64::R13,
+		Reg64::R14,
+		Reg64::R15,
+	];
 
 	use HighAsmInstr::*;
 
+	let mut number_of_tests = 0;
+
 	// We try all the `MovDerefReg64ToReg64`s that we can think of.
-	for src_reg in regs_to_test.iter().copied() {
+	for src_reg in regs_to_test_src.iter().copied() {
 		bin.high_asm_instrs.extend([MovImmToReg64 {
 			imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
 				offset_in_data_segment: value_offset_in_data as u64,
@@ -313,7 +332,7 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 			reg_dst: src_reg,
 		}]);
 
-		for dst_reg in regs_to_test.iter().copied() {
+		for dst_reg in regs_to_test_dst.iter().copied() {
 			if src_reg == dst_reg {
 				continue;
 			}
@@ -362,10 +381,10 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 				},
 				PushReg64 { reg_src: dst_reg },
 			]);
+
+			number_of_tests += 1;
 		}
 	}
-
-	let number_of_tests = regs_to_test.len() * (regs_to_test.len() - 1);
 
 	// The results were all pushed on the stack,
 	// now we extract them to be confronted to the expected results.
@@ -421,8 +440,8 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 	let binary_execution_output = binary_execution_result.stderr.as_slice();
 
 	let mut i = 0;
-	for src_reg in regs_to_test.iter().copied().rev() {
-		for dst_reg in regs_to_test.iter().copied().rev() {
+	for src_reg in regs_to_test_src.iter().copied().rev() {
+		for dst_reg in regs_to_test_dst.iter().copied().rev() {
 			if src_reg == dst_reg {
 				continue;
 			}
