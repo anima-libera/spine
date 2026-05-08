@@ -118,7 +118,7 @@ fn some_assembly_instructions() {
 	}
 	println!();
 
-	std::fs::create_dir("test_binaries").unwrap();
+	std::fs::create_dir_all("test_binaries").unwrap();
 	let dot_path = "./test_binaries/binary_some_assembly_instructions";
 	std::fs::write(dot_path, bin.to_binary()).unwrap();
 	chmod_x(dot_path).unwrap();
@@ -229,7 +229,7 @@ fn mov_imm_to_reg64_all_variants() {
 	}
 	println!();
 
-	std::fs::create_dir("test_binaries").unwrap();
+	std::fs::create_dir_all("test_binaries").unwrap();
 	let dot_path = "./test_binaries/binary_mov_imm_to_reg64_all_variants";
 	std::fs::write(dot_path, bin.to_binary()).unwrap();
 	chmod_x(dot_path).unwrap();
@@ -408,7 +408,7 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 		bin.layout().data_segment_address + value_offset_in_data
 	);
 
-	std::fs::create_dir("test_binaries").unwrap();
+	std::fs::create_dir_all("test_binaries").unwrap();
 	let dot_path = "./test_binaries/binary_mov_deref_reg_64_to_reg_64_all_variants";
 	std::fs::write(dot_path, bin.to_binary()).unwrap();
 	chmod_x(dot_path).unwrap();
