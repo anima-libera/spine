@@ -466,3 +466,196 @@ fn mov_deref_reg_64_to_reg_64_all_variants() {
 		}
 	}
 }
+
+#[test]
+fn mov_reg_64_to_deref_reg_64_all_variants() {
+	let mut bin = HighAsmBinaryPlan::new();
+
+	let value = [0xfa, 0xf1, 0xfb, 0xf2, 0xfc, 0xf3, 0xfd, 0xf4];
+	let start_offset_in_data = bin.data_bytes.len();
+
+	let regs_to_test_src = [
+		Reg64::Rax,
+		Reg64::Rbx,
+		Reg64::Rcx,
+		Reg64::Rdx,
+		//Reg64::Rbp,
+		//Reg64::Rdi,
+		//Reg64::Rsi,
+		Reg64::R8,
+		Reg64::R9,
+		Reg64::R10,
+		Reg64::R11,
+		Reg64::R12,
+		Reg64::R13,
+		Reg64::R14,
+		Reg64::R15,
+	];
+	let regs_to_test_dst = [
+		Reg64::Rax,
+		Reg64::Rbx,
+		Reg64::Rcx,
+		Reg64::Rdx,
+		//Reg64::Rbp,
+		Reg64::Rdi,
+		Reg64::Rsi,
+		Reg64::R8,
+		Reg64::R9,
+		Reg64::R10,
+		Reg64::R11,
+		//Reg64::R12,
+		//Reg64::R13,
+		Reg64::R14,
+		Reg64::R15,
+	];
+
+	use HighAsmInstr::*;
+
+	let mut number_of_tests = 0;
+
+	// We try all the `MovReg64ToDerefReg64`s that we can think of.
+	for src_reg in regs_to_test_src.iter().copied() {
+		bin.high_asm_instrs.extend([MovImmToReg64 {
+			imm_src: ImmRich::unsigned_value(u64::from_le_bytes(value)),
+			reg_dst: src_reg,
+		}]);
+
+		for dst_reg in regs_to_test_dst.iter().copied() {
+			if src_reg == dst_reg {
+				continue;
+			}
+
+			bin.high_asm_instrs.extend([
+				MovImmToReg64 {
+					imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
+						offset_in_data_segment: bin.data_bytes.len() as u64,
+					}),
+					reg_dst: dst_reg,
+				},
+				MovReg64ToDerefReg64 {
+					dst_size: BaseSize::Size8,
+					reg_src: src_reg,
+					reg_as_ptr_dst: dst_reg,
+				},
+			]);
+			bin.data_bytes.extend([0; 8]);
+
+			bin.high_asm_instrs.extend([
+				MovImmToReg64 {
+					imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
+						offset_in_data_segment: bin.data_bytes.len() as u64,
+					}),
+					reg_dst: dst_reg,
+				},
+				MovReg64ToDerefReg64 {
+					dst_size: BaseSize::Size32,
+					reg_src: src_reg,
+					reg_as_ptr_dst: dst_reg,
+				},
+			]);
+			bin.data_bytes.extend([0; 8]);
+
+			bin.high_asm_instrs.extend([
+				MovImmToReg64 {
+					imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
+						offset_in_data_segment: bin.data_bytes.len() as u64,
+					}),
+					reg_dst: dst_reg,
+				},
+				MovReg64ToDerefReg64 {
+					dst_size: BaseSize::Size64,
+					reg_src: src_reg,
+					reg_as_ptr_dst: dst_reg,
+				},
+			]);
+			bin.data_bytes.extend([0; 8]);
+
+			number_of_tests += 1;
+		}
+	}
+
+	// The results were all written in the data segment,
+	// now we extract them to be confronted to the expected results.
+	bin.high_asm_instrs.extend([
+		// Write syscall
+		MovImmToReg64 {
+			imm_src: ImmRich::whatever_value(1),
+			reg_dst: Reg64::Rax, // Syscall number
+		},
+		MovImmToReg64 {
+			imm_src: ImmRich::whatever_value(2),
+			reg_dst: Reg64::Rdi, // File descriptor
+		},
+		MovImmToReg64 {
+			imm_src: ImmRich::Imm64(ImmRich64::DataAddr {
+				offset_in_data_segment: start_offset_in_data as u64,
+			}),
+			reg_dst: Reg64::Rsi, // String address
+		},
+		MovImmToReg64 {
+			imm_src: ImmRich::unsigned_value(3 * 8 * (number_of_tests as u64)),
+			reg_dst: Reg64::Rdx, // String length
+		},
+		Syscall,
+		// Exit syscall
+		MovImmToReg64 {
+			imm_src: ImmRich::whatever_value(60),
+			reg_dst: Reg64::Rax, // Syscall number
+		},
+		MovImmToReg64 {
+			imm_src: ImmRich::unsigned_value(0),
+			reg_dst: Reg64::Rdi, // Exit code, 0 means all good
+		},
+		Syscall,
+	]);
+
+	for byte in bin.code_segment_binary_machine_code() {
+		print!("{byte:02x}");
+	}
+	println!();
+
+	println!(
+		"Data start address: {:x}",
+		bin.layout().data_segment_address + start_offset_in_data
+	);
+
+	std::fs::create_dir_all("test_binaries").unwrap();
+	let dot_path = "./test_binaries/binary_mov_reg_64_to_deref_reg_64_all_variants";
+	std::fs::write(dot_path, bin.to_binary()).unwrap();
+	chmod_x(dot_path).unwrap();
+
+	// Waiting a bit makes sure that we do not get `ExecutableFileBusy` errors
+	// when executing the binary so soon after generating and chmoding it.
+	std::thread::sleep(Duration::from_millis(20));
+
+	let binary_execution_result = std::process::Command::new(dot_path).output().unwrap();
+	let binary_execution_output = binary_execution_result.stderr.as_slice();
+
+	let mut i = 0;
+	for src_reg in regs_to_test_src.iter().copied() {
+		for dst_reg in regs_to_test_dst.iter().copied() {
+			if src_reg == dst_reg {
+				continue;
+			}
+
+			println!("Testing {src_reg:?} -> *{dst_reg:?}, 8-bits");
+			assert_eq!(
+				binary_execution_output[i..(i + 8)],
+				(u8::from_le_bytes(value[0..1].try_into().unwrap()) as u64).to_le_bytes()
+			);
+			i += 8;
+			println!("Testing {src_reg:?} -> *{dst_reg:?}, 32-bits");
+			assert_eq!(
+				binary_execution_output[i..(i + 8)],
+				(u32::from_le_bytes(value[0..4].try_into().unwrap()) as u64).to_le_bytes()
+			);
+			i += 8;
+			println!("Testing {src_reg:?} -> *{dst_reg:?}, 64-bits");
+			assert_eq!(
+				binary_execution_output[i..(i + 8)],
+				u64::from_le_bytes(value[0..8].try_into().unwrap()).to_le_bytes()
+			);
+			i += 8;
+		}
+	}
+}

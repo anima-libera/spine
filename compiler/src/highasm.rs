@@ -494,12 +494,23 @@ impl HighAsmInstr {
 			},
 			HighAsmInstr::MovReg64ToDerefReg64 { dst_size, reg_src, reg_as_ptr_dst } => {
 				assert!(
-					*reg_as_ptr_dst != Reg64::Rsp && *reg_as_ptr_dst != Reg64::Rbp,
+					*reg_src != Reg64::Rsp
+						&& *reg_as_ptr_dst != Reg64::Rsp
+						&& *reg_src != Reg64::Rbp
+						&& *reg_as_ptr_dst != Reg64::Rbp,
 					"The addressing forms with the ModR/M byte look a bit funky \
 					for these registers, maybe just move the address to dereference \
 					to an other register..."
 				);
-				// TODO: Deal with RSP and RBP here if it is feasable
+				// TODO: Deal with RSP and RBP here if it is feasable.
+				assert!(
+					*reg_src != Reg64::Rdi && *reg_src != Reg64::Rsi,
+					"Tests fail when RDI and RSI are used as source for some reason"
+				);
+				assert!(
+					*reg_as_ptr_dst != Reg64::R12 && *reg_as_ptr_dst != Reg64::R13,
+					"Tests fail when R12 and R13 are used as destination for some reason"
+				);
 
 				let instr = match dst_size {
 					BaseSize::Size64 => X8664Instr::MovReg64ToRegOrMem64 {
@@ -583,10 +594,14 @@ impl HighAsmInstr {
 					_ => 3,
 				}
 			},
-			HighAsmInstr::MovReg64ToDerefReg64 { reg_src, reg_as_ptr_dst, .. } => {
-				let need_rex_r_bit =
-					reg_src.id_higher_bit() == Bit::_1 || reg_as_ptr_dst.id_higher_bit() == Bit::_1;
-				2 + if need_rex_r_bit { 1 } else { 0 }
+			HighAsmInstr::MovReg64ToDerefReg64 { dst_size, reg_src, reg_as_ptr_dst } => {
+				if let BaseSize::Size64 = dst_size {
+					3
+				} else {
+					let need_rex_r_bit =
+						reg_src.id_higher_bit() == Bit::_1 || reg_as_ptr_dst.id_higher_bit() == Bit::_1;
+					2 + if need_rex_r_bit { 1 } else { 0 }
+				}
 			},
 			HighAsmInstr::AddReg64ToReg64 { .. } => 3,
 			HighAsmInstr::PushReg64 { reg_src: reg } | HighAsmInstr::PopToReg64 { reg_dst: reg } => {
